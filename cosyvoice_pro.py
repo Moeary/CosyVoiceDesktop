@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CosyVoice Desktop Application - 专业版
+CosyVoice Desktop Application
 支持任务计划、单段落推理、音频管理、模型卸载等高级功能
 """
 
