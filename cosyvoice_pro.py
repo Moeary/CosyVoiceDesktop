@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QMenu, QAction, QColorDialog, QSplitter, QProgressBar, QTableWidgetItem
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint
-from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat, QColor
+from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat, QColor, QIcon
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtCore import QUrl
 
@@ -1138,8 +1138,13 @@ class CosyVoiceProApp(FluentWindow):
         self.connect_signals()
     
     def init_window(self):
-        self.setWindowTitle("CosyVoice Desktop Pro")
+        self.setWindowTitle("CosyVoice Desktop")
         self.resize(1400, 900)
+        
+        # 设置窗口图标
+        icon_path = "./icon.ico"
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
     
     def init_navigation(self):
         # 界面1: 文本编辑
@@ -1502,8 +1507,13 @@ def main():
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
     
     app = QApplication(sys.argv)
-    app.setApplicationName("CosyVoice Desktop Pro")
-    app.setApplicationVersion("2.0")
+    app.setApplicationName("CosyVoice Desktop")
+    app.setApplicationVersion("1.0")
+    
+    # 设置应用程序图标(任务栏图标)
+    icon_path = "./icon.ico"
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
     
     setTheme(Theme.AUTO)
     
