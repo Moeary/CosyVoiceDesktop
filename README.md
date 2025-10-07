@@ -117,7 +117,7 @@ CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内
 
 ## 更新与反馈
 
-- 项目主页：链接待定
+- [项目主页](https://github.com/Moeary/CosyVoiceDesktop)
 - 功能需求与问题反馈：请在 GitHub Issues 提交
 
 ## 📝 用户协议
