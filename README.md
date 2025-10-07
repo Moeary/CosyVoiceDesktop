@@ -1,10 +1,10 @@
-# CosyVoice Pro 有声小说生成器
+# CosyVoice Desktop 有声小说生成器
 
 面向创作者的多功能桌面端有声小说生产力工具，基于 CosyVoice 系列大模型构建，提供即开即用的文本转语音体验。
 
-## � 项目简介
+## 🥘 项目简介
 
-CosyVoice Pro 是在官方 CosyVoice 能力之上构建的图形化有声内容创作平台。通过 PyQt 与 Fluent Design 风格界面，整合零样本克隆、精细控制、指令式创作、流式生成等多种推理模式，帮助小说、广播剧、播客及教育内容创作者快速完成高质量的有声作品。
+CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内容创作平台。通过 PyQt 与 Fluent Design 风格界面，整合零样本克隆、精细控制、指令式创作、流式生成等多种推理模式，帮助小说、广播剧、播客及教育内容创作者快速完成高质量的有声作品。
 
 ## ✨ 核心优势
 
@@ -35,19 +35,17 @@ CosyVoice Pro 是在官方 CosyVoice 能力之上构建的图形化有声内容�
 
 ## 📸 界面示例
 
-- ![主界面预览](链接待定)
-- ![语音配置面板](链接待定)
-- ![生成日志与播放器](链接待定)
+- ![主界面预览](https://raw.githubusercontent.com/Moeary/pic_bed/main/img/202510071209350.png)
+- ![语音配置面板](https://raw.githubusercontent.com/Moeary/pic_bed/main/img/202510071208054.png)
+- ![生成日志与播放器](https://raw.githubusercontent.com/Moeary/pic_bed/main/img/202510071210326.png)
 
-## � 三种使用方式概览
+##  两种使用方式概览
 
 | 方式 | 推荐人群 | 前置条件 | 快速操作 |
 | --- | --- | --- | --- |
 | 方式一：百度网盘一键包 | 想立即体验、拥有 NVIDIA GPU 的创作者 | 支持 CUDA ≥ 12.1 的 NVIDIA 显卡，Windows 10/11 | 下载压缩包 → 解压 → 双击运行 |
-| 方式二：已有 CosyVoice 环境 | 已经本地部署官方 CosyVoice 的用户 | 本地 CosyVoice 目录与模型完整可用 | 安装桌面依赖 → 运行 `python cosyvoice_pro.py` |
-| 方式三：全手动安装编译 | 希望了解完整部署流程的新手 | Git、Conda、Python 3.10、充足磁盘空间 | 从零克隆仓库 → 配置环境 → 拷贝 GUI → 编译/运行 |
-
-> 🔔 提示：三种方式可并行维护，推荐保留同一套 `pretrained_models` 以节省磁盘空间。
+| 方式二：已有 CosyVoice 环境 | 已经本地部署官方 CosyVoice 的用户 | 本地 CosyVoice 目录与模型完整可用 | 安装桌面依赖 → 运行 `python CosyVoiceDesktop.py` |
+> 🔔 提示：两种方式可并行维护，推荐保留同一套 `pretrained_models` 以节省磁盘空间。
 
 ## 方式一：百度网盘一键体验包（链接待定）
 
@@ -57,16 +55,22 @@ CosyVoice Pro 是在官方 CosyVoice 能力之上构建的图形化有声内容�
 - Windows 10/11 环境。
 
 ### 步骤
-1. 访问百度网盘链接（待补充），下载最新发布的压缩包。
-2. 在本地磁盘解压，例如 `D:\CosyVoicePro`。
+1. 访问[百度网盘链接](https://pan.baidu.com/s/1xurTxXgFIZcuKNK6IXsSfA?pwd=free )：
+2. 在本地磁盘解压，例如 `D:\CosyVoiceDesktop`。
 3. 检查显卡驱动与 CUDA Runtime 是否满足 12.1 及以上要求。
-4. 双击 `cosyvoice_pro.exe`（依据压缩包提供的启动脚本）。
-5. 首次启动会自动校验依赖并加载模型，随后进入主界面即可使用。
+4. 双击 `StartCosyVoice.bat`（依据压缩包提供的启动脚本）。
+5. 进入主界面参考教程使用即可使用。
+
+### 📦 一键包说明
+- **asset/**: 存放测试音频文件，如 `孙笑川_哈喽 大家好 我小孙 这一期收到了一个情感类方面比较抽象的一个粉丝 发来这个东西 而且他说了 这个东西是绝对属实的`，用于快速预览。
+- **config/**: 人物语音配置目录，用于存放工程对应的配置文件(json格式,记录命名和参考音频文件)。
+- **cosyvoice/**、**pretrained_models/**、**python_env/**、**third_party/**: 核心项目文件，无需移动或修改。
+- **output/**: 默认的音频输出目录，用于保存生成的音频文件,在计划任务可以自行设置输出文件夹。
 
 ### 注意事项
 - 解压路径请避免中文或空格字符，以免影响 Python 虚拟环境。
 - 若 Windows SmartScreen 拦截，可选择“更多信息 → 仍要运行”。
-- 首次加载大型模型时耗时较长，耐心等待日志面板提示完成。
+- 首次运行时加载大型模型时耗时较长，耐心等待日志面板提示完成。
 
 ## 方式二：已有 CosyVoice 环境的快速集成
 
@@ -84,16 +88,10 @@ CosyVoice Pro 是在官方 CosyVoice 能力之上构建的图形化有声内容�
    ```powershell
    pip install "PyQt-Fluent-Widgets[full]" -i https://pypi.org/simple/
    ```
-4. 将 `CosyVoiceGUI` 仓库中的 `cosyvoice_pro.py`、`config/`、`build_config.txt`、`build.ps1`（如需打包）复制到 CosyVoice 根目录或自定义工作目录：
-   ```powershell
-   copy path\to\CosyVoiceGUI\cosyvoice_pro.py  .
-   robocopy path\to\CosyVoiceGUI\config .\config /E
-   copy path\to\CosyVoiceGUI\build_config.txt .
-   copy path\to\CosyVoiceGUI\build.ps1 .
-   ```
+4. 将 `CosyVoiceDesktop` 仓库中的 `CosyVoiceDesktop.py`复制到 CosyVoice 根目录或自定义工作目录：
 5. 运行桌面应用：
    ```powershell
-   python cosyvoice_pro.py
+   python CosyVoiceDesktop.py
    ```
 6. 首次运行建议在“语音设置”中校验模型路径与音频输出目录，确保指向现有的 `pretrained_models`。
 
@@ -101,91 +99,13 @@ CosyVoice Pro 是在官方 CosyVoice 能力之上构建的图形化有声内容�
 - 依据 `build_config.txt` 调整打包选项。
 - 运行 `build.ps1` 以生成独立可执行程序，便于分发。
 
-## 方式三：零基础全流程手动安装与编译
 
-### 前置条件
-- Windows 10/11。
-- Git、Conda 或 Mambaforge、Python 3.10。
-- 至少 30 GB 可用磁盘空间（含模型）。
-- 可访问外网以下载依赖与模型，如需国内镜像可根据下述示例修改源。
-
-### Step 1：获取官方 CosyVoice 源码
-```powershell
-cd D:\Projects
-git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git
-cd CosyVoice
-git submodule update --init --recursive
-```
-
-### Step 2：创建与配置 Python 环境
-```powershell
-conda create -n cosyvoice -y python=3.10
-conda activate cosyvoice
-pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host=mirrors.aliyun.com
-```
-
-若需语音前处理增强，可按需安装 `ttsfrd` 资源：
-```powershell
-cd pretrained_models\CosyVoice-ttsfrd
-pip install ttsfrd_dependency-0.1-py3-none-any.whl
-pip install ttsfrd-0.4.2-cp310-cp310-win_amd64.whl
-```
-
-### Step 3：下载预训练模型
-可在 Python 交互环境中使用 ModelScope SDK：
-```python
-from modelscope import snapshot_download
-snapshot_download('iic/CosyVoice2-0.5B', local_dir='pretrained_models/CosyVoice2-0.5B')
-snapshot_download('iic/CosyVoice-300M-SFT', local_dir='pretrained_models/CosyVoice-300M-SFT')
-snapshot_download('iic/CosyVoice-ttsfrd', local_dir='pretrained_models/CosyVoice-ttsfrd')
-```
-
-或使用 Git LFS：
-```powershell
-mkdir pretrained_models
-git lfs install
-git clone https://www.modelscope.cn/iic/CosyVoice2-0.5B.git pretrained_models\CosyVoice2-0.5B
-git clone https://www.modelscope.cn/iic/CosyVoice-300M-SFT.git pretrained_models\CosyVoice-300M-SFT
-git clone https://www.modelscope.cn/iic/CosyVoice-ttsfrd.git pretrained_models\CosyVoice-ttsfrd
-```
-
-### Step 4：获取 CosyVoice Pro 桌面端资源
-```powershell
-cd ..
-git clone https://github.com/Moeary/CosyVoiceGUI.git
-cd CosyVoiceGUI
-```
-
-### Step 5：整合 GUI 与 CosyVoice 环境
-- 将 `cosyvoice_pro.py` 放置于 `CosyVoice` 根目录或自定义的 `tools/gui` 目录。
-- 同步 `config/`、`build_config.txt`、`build.ps1` 等文件至目标目录。
-- 若希望统一管理输出目录，可在 `config/voice_config.json` 中调整 `output_path`。
-
-示例（以 CosyVoice 根目录为目标）：
-```powershell
-copy cosyvoice_pro.py ..\CosyVoice
-robocopy config ..\CosyVoice\config /E
-copy build_config.txt ..\CosyVoice
-copy build.ps1 ..\CosyVoice
-```
-
-### Step 6：安装桌面端依赖并验证运行
-```powershell
-conda activate cosyvoice
-cd ..\CosyVoice
-pip install "PyQt-Fluent-Widgets[full]" -i https://pypi.org/simple/
-python cosyvoice_pro.py
-```
-
-如需生成独立发行版，可编辑 `build_config.txt` 后运行：
-```powershell
-pwsh build.ps1
-```
-
-### Step 7：首次使用建议
-- 在“语音设置”中新增至少一个配置，选择零样本或精细控制模式。
-- 导入对话文本，使用右键菜单给不同角色分配语音。
-- 点击“生成语音”并留意日志输出，首个项目建议保存配置文件以方便复用。
+## 🛠️ 工作流程
+1. 打开**语音设置**页面，创建或导入角色配置，选择参考音频并点击“保存并应用”。
+2. 切换到**文本编辑**页面，输入或粘贴待合成文本，通过快捷键（Ctrl+数字）或工具栏为不同段落分配语音配置（不同颜色标记）。
+3. 点击**一键运行**（或将任务转换为计划任务），切换到**计划任务**页面，查看任务执行日志和输出。
+4. 若合成效果不满意，可在计划任务页面点击“三角形”按钮进行 Roll。
+5. 所有段落合成完成后，点击“合成音频”按钮，将分段音频合并为完整音频文件。
 
 ## 常见问题 FAQ
 
@@ -199,7 +119,6 @@ pwsh build.ps1
 
 - 项目主页：链接待定
 - 功能需求与问题反馈：请在 GitHub Issues 提交
-- 企业合作或私有化部署：可邮件联系（地址待补充）
 
 ## 📝 用户协议
 
