@@ -60,3 +60,5 @@ cosyvoice/*
 pretrained_models/*
 python_env/*
 third_party/*
+
+.gitignore
