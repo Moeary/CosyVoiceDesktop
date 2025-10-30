@@ -5,6 +5,7 @@
 ## 更新日志
 
 2025.10.7 上传V1.0
+
 2025.10.30 根据Issue反馈缺失Pillow库重新打包上传上传V1.1版本,可以于[百度网盘](https://pan.baidu.com/s/1xurTxXgFIZcuKNK6IXsSfA?pwd=free)下载最新的一键包,不想重下的也可以下载site-package.zip压缩包根据txt提示将文件解压到制定路径即可使用
 
 ## 🥘 项目简介
