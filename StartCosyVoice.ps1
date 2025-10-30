@@ -3,7 +3,7 @@ $Host.UI.RawUI.WindowTitle = "CosyVoice Desktop"
 Set-Location $PSScriptRoot
 
 Write-Host "====================================" -ForegroundColor Cyan
-Write-Host "   CosyVoice Desktop v1.0.0" -ForegroundColor Green
+Write-Host "   CosyVoice Desktop v1.1" -ForegroundColor Green
 Write-Host "====================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "[启动] 正在启动程序..." -ForegroundColor Yellow

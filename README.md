@@ -2,6 +2,11 @@
 
 面向创作者的多功能桌面端有声小说生产力工具，基于 CosyVoice 系列大模型构建，提供即开即用的文本转语音体验。
 
+## 更新日志
+
+2025.10.7 上传V1.0
+2025.10.30 根据Issue反馈缺失Pillow库重新打包上传上传V1.1版本,可以于[百度网盘](https://pan.baidu.com/s/1xurTxXgFIZcuKNK6IXsSfA?pwd=free)下载最新的一键包,不想重下的也可以下载site-package.zip压缩包根据txt提示将文件解压到制定路径即可使用
+
 ## 🥘 项目简介
 
 CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内容创作平台。通过 PyQt 与 Fluent Design 风格界面，整合零样本克隆、精细控制、指令式创作、流式生成等多种推理模式，帮助小说、广播剧、播客及教育内容创作者快速完成高质量的有声作品。

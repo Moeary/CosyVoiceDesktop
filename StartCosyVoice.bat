@@ -3,7 +3,7 @@ chcp 65001 > nul
 title CosyVoice Desktop Pro
 
 echo ====================================
-echo    CosyVoice Desktop v1.0.0
+echo    CosyVoice Desktop v1.1
 echo ====================================
 echo.
 
