@@ -4,7 +4,7 @@
 
 ## 更新日志
 
-2025.10.31 主要更新README文档和Assets文件夹 程序本身没太大实质性变化 根据[Issue2的问题反馈](https://github.com/Moeary/CosyVoiceDesktop/issues/2)添加演示示例视频 于Readme下方可以查看,同时[assets文件夹下]()添加更多示例音频数据(大部分来源于[【1080p+修复/国语】精灵宝可梦:无印篇第1集](https://www.bilibili.com/video/BV1kt41167Cq) 自行剪辑获得 如有侵权我将立马删除)以供多角色朗读测试使用
+2025.10.31 主要更新README文档和Asset文件夹 程序本身没太大实质性变化 根据[Issue2的问题反馈](https://github.com/Moeary/CosyVoiceDesktop/issues/2)添加演示示例视频 于Readme下方可以查看,同时[asset文件夹下]()添加更多示例音频数据(大部分来源于[【1080p+修复/国语】精灵宝可梦:无印篇第1集](https://www.bilibili.com/video/BV1kt41167Cq) 自行剪辑获得 如有侵权我将立马删除)以供多角色朗读测试使用
 
 2025.10.30 根据Issue反馈缺失Pillow库重新打包上传上传V1.1版本,可以于[百度网盘](https://pan.baidu.com/s/1xurTxXgFIZcuKNK6IXsSfA?pwd=free)下载最新的一键包,不想重下的也可以下载site-package.zip压缩包根据txt提示将文件解压到制定路径即可使用
 
@@ -71,7 +71,7 @@ CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内
 5. 进入主界面参考教程使用即可使用。
 
 ### 📦 一键包说明
-- **assets/**: 存放测试音频文件，如 `孙笑川_哈喽 大家好 我小孙 这一期收到了一个情感类方面比较抽象的一个粉丝 发来这个东西 而且他说了 这个东西是绝对属实的`，用于快速实验测试,省去自行查找音频片段。
+- **asset/**: 存放测试音频文件，如 `孙笑川_哈喽 大家好 我小孙 这一期收到了一个情感类方面比较抽象的一个粉丝 发来这个东西 而且他说了 这个东西是绝对属实的`，用于快速实验测试,省去自行查找音频片段。
 - **config/**: 人物语音配置目录，用于存放工程对应的配置文件(json格式,记录命名和参考音频文件)。
 - **cosyvoice/**、**pretrained_models/**、**python_env/**、**third_party/**: 核心项目文件，无需移动或修改。
 - **output/**: 默认的音频输出目录，用于保存生成的音频文件,在计划任务可以自行设置输出文件夹分类,建议每个工程按照每个工程来分类。
