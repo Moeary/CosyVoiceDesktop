@@ -51,6 +51,7 @@ pretrained_models/*
 *.tar
 
 # file folders
+asset/*
 config/*
 reference/*
 output/*
@@ -64,3 +65,9 @@ third_party/*
 CosyVoiceDesktop_V1.1.7z
 CosyVoiceDesktop_V1.1.7z.baiduyun.uploading.cfg
 点击看我说明.txt
+app_config.json
+
+
+# pixi environments
+.pixi/*
+!.pixi/config.toml

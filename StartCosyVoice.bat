@@ -3,19 +3,27 @@ chcp 65001 > nul
 title CosyVoice Desktop Pro
 
 echo ====================================
-echo    CosyVoice Desktop v1.1
+echo    CosyVoice Desktop v1.2
 echo ====================================
 echo.
 
-cd /d "%~dp0"
+REM 获取当前脚本所在目录
+set "SCRIPT_DIR=%~dp0"
+cd /d "%SCRIPT_DIR%"
 
-echo [启动] 正在启动程序...
-echo.
+REM 设置 Python 路径
+set "PYTHON=.pixi\envs\default\python.exe"
 
-REM 设置 PATH，确保能找到所有 DLL
-set "PATH=%~dp0python_env;%PATH%"
 
-"%~dp0python_env\python.exe" CosyVoiceDesktop.py
+REM 检查 Python 是否存在
+if not exist "%PYTHON%" (
+    echo Error: Python environment not found. Please run 'pixi install' first or download the full package.
+    pause
+    exit /b 1
+)
+
+REM 运行主程序
+"%PYTHON%" main.py %*
 
 if errorlevel 1 (
     echo.
