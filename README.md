@@ -58,7 +58,7 @@ CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内
 
 | 方式 | 推荐人群 | 前置条件 | 快速操作 |
 | --- | --- | --- | --- |
-| 方式一：百度网盘一键包 | 想立即体验、拥有 NVIDIA GPU 的创作者(实际上使用CPU也可以跑) | 支持 CUDA ≥ 12.1 的 NVIDIA 显卡(**50系显卡**试过了暂时不可用)，Windows 10/11 | 下载压缩包 → 解压 → 双击bat运行程序 |
+| 方式一：百度网盘一键包 | 想立即体验、拥有 NVIDIA GPU 的创作者(实际上使用CPU也可以跑) | 支持 CUDA ≥ 12.8 的 NVIDIA 显卡，Windows 10/11 | 下载压缩包 → 解压 → 双击bat运行程序 |
 | 方式二：已有 CosyVoice 环境 | 已经本地部署官方 CosyVoice 的用户 | 本地 CosyVoice 目录与模型完整可用 | 安装桌面依赖 → 运行 `python main.py` |
 > 🔔 提示：两种方式可并行维护，推荐保留同一套 `pretrained_models` 以节省磁盘空间。
 
@@ -104,10 +104,10 @@ CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内
    ```powershell
    pip install "PyQt-Fluent-Widgets[full]" -i https://pypi.org/simple/
    ```
-4. 将 `CosyVoiceDesktop` 仓库中的 `CosyVoiceDesktop.py`复制到 CosyVoice 根目录或自定义工作目录：
+4. 将 `CosyVoiceDesktop` 仓库中的 `main.py`和core文件夹以及ui文件夹 复制到 CosyVoice 根目录或自定义工作目录：
 5. 运行桌面应用：
    ```powershell
-   python CosyVoiceDesktop.py
+   python main.py
    ```
 
 ## 🛠️ 工作流程
