@@ -1,21 +1,63 @@
 @echo off
 chcp 65001 > nul
+setlocal enabledelayedexpansion
 title CosyVoice Desktop Pro
 
 echo ====================================
-echo    CosyVoice Desktop v1.1
+echo    CosyVoice Desktop v1.3
 echo ====================================
 echo.
 
-cd /d "%~dp0"
+REM 获取当前脚本所在目录
+set "SCRIPT_DIR=%~dp0"
+cd /d "%SCRIPT_DIR%"
 
-echo [启动] 正在启动程序...
-echo.
+REM 设置 Python 路径 - 优先使用 pixi 环境，回退到系统 Python
+set "PYTHON="
 
-REM 设置 PATH，确保能找到所有 DLL
-set "PATH=%~dp0python_env;%PATH%"
+REM Method 1: Check .pixi\envs\default\Scripts\python.exe
+if exist "!SCRIPT_DIR!.pixi\envs\default\Scripts\python.exe" (
+    set "PYTHON=!SCRIPT_DIR!.pixi\envs\default\Scripts\python.exe"
+    echo ✅ 使用 pixi 环境中的 Python
+    goto :run_program
+)
 
-"%~dp0python_env\python.exe" CosyVoiceDesktop.py
+REM Method 2: Check .pixi\envs\default\python.exe
+if exist "!SCRIPT_DIR!.pixi\envs\default\python.exe" (
+    set "PYTHON=!SCRIPT_DIR!.pixi\envs\default\python.exe"
+    echo ✅ 使用 pixi 环境中的 Python
+    goto :run_program
+)
+
+REM Method 3: Find any python.exe in .pixi\envs\*\Scripts\
+for /d %%D in ("!SCRIPT_DIR!.pixi\envs\*") do (
+    if exist "%%D\Scripts\python.exe" (
+        set "PYTHON=%%D\Scripts\python.exe"
+        echo ✅ 使用 pixi 环境中的 Python: !PYTHON!
+        goto :run_program
+    )
+)
+
+REM Fallback to system Python
+echo ⚠️ 未找到 pixi 环境，尝试使用系统 Python...
+for /f "delims=" %%i in ('where python 2^>nul') do (
+    set "PYTHON=%%i"
+    echo ✅ 使用系统 Python: !PYTHON!
+    goto :run_program
+)
+
+:run_program
+
+REM 检查 Python 是否存在
+if "!PYTHON!"=="" (
+    echo ❌ 错误：找不到 Python 环境。请安装 pixi 后运行 'pixi install' 或下载完整包。
+    echo ❌ Error: Python environment not found. Please run 'pixi install' first or download the full package.
+    pause
+    exit /b 1
+)
+
+REM 运行主程序
+"!PYTHON!" main.py %*
 
 if errorlevel 1 (
     echo.
