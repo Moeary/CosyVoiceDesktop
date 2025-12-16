@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 > nul
+setlocal enabledelayedexpansion
 title CosyVoice Desktop Pro
 
 echo ====================================
@@ -14,26 +15,38 @@ cd /d "%SCRIPT_DIR%"
 REM 设置 Python 路径 - 优先使用 pixi 环境，回退到系统 Python
 set "PYTHON="
 
-REM 尝试找到 pixi 环境中的 Python
-if exist "%SCRIPT_DIR%.pixi\envs\default\Scripts\python.exe" (
-    set "PYTHON=%SCRIPT_DIR%.pixi\envs\default\Scripts\python.exe"
+REM Method 1: Check .pixi\envs\default\Scripts\python.exe
+if exist "!SCRIPT_DIR!.pixi\envs\default\Scripts\python.exe" (
+    set "PYTHON=!SCRIPT_DIR!.pixi\envs\default\Scripts\python.exe"
     echo ✅ 使用 pixi 环境中的 Python
-) else if exist "%SCRIPT_DIR%.pixi\envs\default\python.exe" (
-    set "PYTHON=%SCRIPT_DIR%.pixi\envs\default\python.exe"
-    echo ✅ 使用 pixi 环境中的 Python
+    goto :run_program
 )
 
-REM 回退到系统 Python
-if "!PYTHON!"=="" (
-    for /f "delims=" %%i in ('where python 2^>nul') do (
-        set "PYTHON=%%i"
-        echo ✅ 使用系统 Python: !PYTHON!
-        goto :found_python
+REM Method 2: Check .pixi\envs\default\python.exe
+if exist "!SCRIPT_DIR!.pixi\envs\default\python.exe" (
+    set "PYTHON=!SCRIPT_DIR!.pixi\envs\default\python.exe"
+    echo ✅ 使用 pixi 环境中的 Python
+    goto :run_program
+)
+
+REM Method 3: Find any python.exe in .pixi\envs\*\Scripts\
+for /d %%D in ("!SCRIPT_DIR!.pixi\envs\*") do (
+    if exist "%%D\Scripts\python.exe" (
+        set "PYTHON=%%D\Scripts\python.exe"
+        echo ✅ 使用 pixi 环境中的 Python: !PYTHON!
+        goto :run_program
     )
 )
 
-:found_python
+REM Fallback to system Python
+echo ⚠️ 未找到 pixi 环境，尝试使用系统 Python...
+for /f "delims=" %%i in ('where python 2^>nul') do (
+    set "PYTHON=%%i"
+    echo ✅ 使用系统 Python: !PYTHON!
+    goto :run_program
+)
 
+:run_program
 
 REM 检查 Python 是否存在
 if "!PYTHON!"=="" (
