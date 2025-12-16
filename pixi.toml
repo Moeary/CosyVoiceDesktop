@@ -11,6 +11,7 @@ start = "python main.py"
 [dependencies]
 python = "3.12.*"
 ffmpeg = "*"
+modelscope = ">=1.33.0,<2"
 
 [pypi-dependencies]
 torch = { url = "https://mirrors.aliyun.com/pytorch-wheels/cu128/torch-2.7.0%2Bcu128-cp312-cp312-win_amd64.whl" }
@@ -46,3 +47,4 @@ grpcio = ">=1.76.0, <2"
 grpcio-tools = ">=1.62.3, <2"
 pyqt-fluent-widgets = ">=1.10.2, <2"
 pyqt5 = ">=5.15.11, <6"
+x_transformers = ">=1.0.0"

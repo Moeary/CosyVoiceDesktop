@@ -67,14 +67,16 @@ class AudioGenerationWorker(QThread):
                     self.progress.emit(f"⚠️ 参考音频不存在，跳过")
                     continue
                 
-                prompt_speech_16k = load_wav(segment.voice_config.prompt_audio, 16000)
+                # 修改：直接传递音频路径，而不是加载后的tensor
+                # CosyVoice内部会处理音频加载
+                prompt_audio_path = segment.voice_config.prompt_audio
                 
                 # 生成音频 - 同一次运行的所有片段作为一个版本
                 segment_files = []
                 
                 inference_func = self.get_inference_function(segment)
                 
-                for sub_idx, result in enumerate(inference_func(segment, prompt_speech_16k)):
+                for sub_idx, result in enumerate(inference_func(segment, prompt_audio_path)):
                     if not self.is_running:
                         break
                     
@@ -105,16 +107,26 @@ class AudioGenerationWorker(QThread):
     
     def load_model(self):
         """加载CosyVoice模型"""
-        model_dir = 'pretrained_models/CosyVoice2-0.5B'
+        # 优先尝试CosyVoice3
+        model_dir = 'pretrained_models/Fun-CosyVoice3-0.5B'
+        if not os.path.exists(model_dir):
+            # 尝试另一个可能的目录名
+            model_dir = 'pretrained_models/CosyVoice3-0.5B'
+            
+        if not os.path.exists(model_dir):
+            # 回退到CosyVoice2
+            model_dir = 'pretrained_models/CosyVoice2-0.5B'
+            
         if not os.path.exists(model_dir):
             raise FileNotFoundError(f"模型目录不存在: {model_dir}")
         
         sys.path.append('third_party/Matcha-TTS')
-        from cosyvoice.cli.cosyvoice import CosyVoice2
+        from cosyvoice.cli.cosyvoice import AutoModel
         
-        return CosyVoice2(
-            model_dir, 
-            load_jit=False, 
+        # AutoModel会自动根据yaml选择正确的模型类
+        # 注意：CosyVoice3不支持load_jit参数
+        return AutoModel(
+            model_dir=model_dir, 
             load_trt=False, 
             load_vllm=False, 
             fp16=False
@@ -122,35 +134,73 @@ class AudioGenerationWorker(QThread):
     
     def get_inference_function(self, segment: TaskSegment):
         """获取推理函数"""
+        # 检查是否为CosyVoice3模型
+        is_v3 = 'CosyVoice3' in getattr(self.cosyvoice, 'model_dir', '')
+        
         if segment.mode == '零样本复制':
             def inference(seg, prompt_audio):
+                prompt_text = seg.voice_config.prompt_text
+                # CosyVoice3需要特定的prompt格式
+                if is_v3 and '<|endofprompt|>' not in prompt_text:
+                    prompt_text = f'You are a helpful assistant.<|endofprompt|>{prompt_text}'
+                
                 return self.cosyvoice.inference_zero_shot(
-                    seg.text, seg.voice_config.prompt_text, 
+                    seg.text, prompt_text, 
                     prompt_audio, stream=False
                 )
             return inference
         
         elif segment.mode == '精细控制':
             def inference(seg, prompt_audio):
+                text = seg.text
+                # CosyVoice3精细控制需要在文本前加指令
+                if is_v3 and '<|endofprompt|>' not in text:
+                    text = f'You are a helpful assistant.<|endofprompt|>{text}'
+                
                 return self.cosyvoice.inference_cross_lingual(
-                    seg.text, prompt_audio, stream=False
+                    text, prompt_audio, stream=False
                 )
             return inference
         
         elif segment.mode == '指令控制':
             def inference(seg, prompt_audio):
+                instruct_text = seg.instruct_text
+                # CosyVoice3指令需要以<|endofprompt|>结尾，且通常需要"You are a helpful assistant."前缀
+                if is_v3:
+                    # 确保指令在中间：You are a helpful assistant. {instruct_text}<|endofprompt|>
+                    if '<|endofprompt|>' not in instruct_text:
+                        instruct_text = f'{instruct_text}<|endofprompt|>'
+                    if 'You are a helpful assistant.' not in instruct_text:
+                        instruct_text = f'You are a helpful assistant. {instruct_text}'
+                
                 # 使用 inference_instruct2
-                # 参数: tts_text, instruct_text, prompt_speech_16k, stream=False
                 return self.cosyvoice.inference_instruct2(
-                    seg.text, seg.instruct_text, 
+                    seg.text, instruct_text, 
+                    prompt_audio, stream=False
+                )
+            return inference
+        
+        elif segment.mode == '语音修补':
+            def inference(seg, prompt_audio):
+                prompt_text = seg.voice_config.prompt_text
+                # 语音修补本质上是Zero-Shot，但文本可能包含发音修正标记
+                if is_v3 and '<|endofprompt|>' not in prompt_text:
+                    prompt_text = f'You are a helpful assistant.<|endofprompt|>{prompt_text}'
+                
+                return self.cosyvoice.inference_zero_shot(
+                    seg.text, prompt_text, 
                     prompt_audio, stream=False
                 )
             return inference
         
         else:  # 默认回退到零样本
             def inference(seg, prompt_audio):
+                prompt_text = seg.voice_config.prompt_text
+                if is_v3 and '<|endofprompt|>' not in prompt_text:
+                    prompt_text = f'You are a helpful assistant.<|endofprompt|>{prompt_text}'
+                
                 return self.cosyvoice.inference_zero_shot(
-                    seg.text, seg.voice_config.prompt_text, 
+                    seg.text, prompt_text, 
                     prompt_audio, stream=False
                 )
             return inference

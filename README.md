@@ -4,6 +4,11 @@
 
 ## 更新日志
 
+2025.12.16 发布V1.3版本，升级至CosyVoice3,便携包提供两种模式,github里面的压缩包不再打包预训练模型(节省一下体积),百度网盘里面的带预训练模型,以后考虑将所有的发布版本都迁移到github里面去,就再也不用受百度网盘的压迫了
+- 🚀 **升级到CosyVoice3-0.5b**：全新的语音生成模型，语音质量与情感表达能力大幅提升
+- 📥 **灵活的模型下载**：提供 `download_all_models.bat` 脚本，支持 HuggingFace 和 ModelScope 两种下载渠道
+- 🎵 **新增语音修补模式**：支持四种模式 - 零样本复刻、精细控制、指令控制、[语音修补(hotfix)](https://github.com/FunAudioLLM/CosyVoice/blob/main/example.py)
+
 2025.12.14 发布V1.2版本，torch环境更新到torch2.7.0+cu128 理应**支持50系显卡**了
 - ✨ **UI优化**：新增"设置"页面，支持主题切换（浅色/深色/自动）
 - 🎵 **模式简化**：仅保留"零样本复刻""精细控制""指令控制"三种推理模式，移除"流式输入"
@@ -23,7 +28,7 @@ CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内
 ## ✨ 核心优势
 
 - **一站式工作流**：从文本管理、角色配置到批量音频导出均在同一界面完成。
-- **三种语音模式**：零样本克隆、精细控制、指令控制，覆盖旁白/人物/方言转换需求。
+- **四种语音模式**：零样本克隆、精细控制、指令控制、语音修补，覆盖旁白/人物/方言转换需求。
 - **智能配置记忆**：启动时自动加载上次使用的语音配置和项目设置，提升工作效率。
 - **色彩化标注体验**：不同角色以颜色区分，提升长篇文本的配音效率与可读性。
 - **自动化播放与日志**：生成后自动按段播放并输出实时日志，快速定位问题。
@@ -38,7 +43,7 @@ CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内
 
 ### 多语音角色管理
 - 支持无限量语音配置，适配旁白、主要角色、群演等场景。
-- 配置项包含模式（零样本/精细控制/指令控制）、参考文本、参考音频与标记颜色。
+- 配置项包含模式（零样本/精细控制/指令控制/语音修补）、参考文本、参考音频与标记颜色。
 - 启动时自动加载上次使用的语音配置，无需重复设置。
 - JSON 导入导出，可与团队成员共享同一套角色库。
 
@@ -54,15 +59,40 @@ CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内
 - ![语音配置面板](https://raw.githubusercontent.com/Moeary/pic_bed/main/img/202510071208054.png)
 - ![生成日志与播放器](https://raw.githubusercontent.com/Moeary/pic_bed/main/img/202510071210326.png)
 
+## 🎯 模型下载指南
+
+从 v1.3 开始，程序不再提供打包的模型文件。请根据以下步骤下载所需模型：
+
+### 快速下载（推荐）
+1. 双击运行 `download_all_models.bat`
+2. 选择下载渠道：
+   - **1. HuggingFace** - 推荐，如有网络问题可选择 2
+   - **2. ModelScope** - 国内用户推荐，如 HuggingFace 下载困难
+3. 脚本将自动下载以下模型到 `pretrained_models/` 目录：
+   - `wetext/` - 文本标准化模型
+   - `Fun-CosyVoice3-0.5B/` - CosyVoice3 推理模型
+
+### 手动下载（进阶）
+如需更细化控制，可在命令行运行：
+```powershell
+python core/download.py --help
+```
+
+支持的选项：
+- `--all` 下载全部模型（默认）
+- `--wetext` 仅下载 wetext
+- `--cosyvoice3` 仅下载 CosyVoice3
+- `--method huggingface|modelscope` 指定下载渠道
+
 ##  两种使用方式概览
 
 | 方式 | 推荐人群 | 前置条件 | 快速操作 |
 | --- | --- | --- | --- |
-| 方式一：百度网盘一键包 | 想立即体验、拥有 NVIDIA GPU 的创作者(实际上使用CPU也可以跑) | 支持 CUDA ≥ 12.8 的 NVIDIA 显卡，Windows 10/11 | 下载压缩包 → 解压 → 双击bat运行程序 |
+| 方式一：Github/百度网盘一键包 | 想立即体验、拥有 NVIDIA GPU 的创作者(实际上使用CPU也可以跑) | 支持 CUDA ≥ 12.8 的 NVIDIA 显卡，Windows 10/11 | 下载压缩包 → 解压 → 双击bat运行程序 |
 | 方式二：已有 CosyVoice 环境 | 已经本地部署官方 CosyVoice 的用户 | 本地 CosyVoice 目录与模型完整可用 | 安装桌面依赖 → 运行 `python main.py` |
 > 🔔 提示：两种方式可并行维护，推荐保留同一套 `pretrained_models` 以节省磁盘空间。
 
-## 方式一：百度网盘一键运行包
+## 方式一：Github/百度网盘一键运行包
 
 ### 适用用户
 - 需要最快上手体验 CosyVoiceDesktop 的创作者。
@@ -71,11 +101,14 @@ CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内
 - Windows 10/11 环境。
 
 ### 步骤
-1. 访问[百度网盘链接](https://pan.baidu.com/s/1xurTxXgFIZcuKNK6IXsSfA?pwd=free )：
+1. 访问[github release界面](https://github.com/Moeary/CosyVoiceDesktop/releases)或者[百度网盘链接](https://pan.baidu.com/s/1xurTxXgFIZcuKNK6IXsSfA?pwd=free )下载压缩包：
+   - **GitHub 推荐版**：仅含代码+环境，体积较小，需自行下载模型
+   - **百度网盘完整版**：包含预训练模型，开箱即用，体积较大
 2. 在本地磁盘解压，例如 `D:\CosyVoiceDesktop`。
 3. 检查显卡驱动与 CUDA Runtime 是否满足 12.8 及以上要求。
-4. 双击 `StartCosyVoice.bat`
-5. 进入主界面参考教程使用即可使用。
+4. **先双击运行** `download_all_models.bat` 下载模型（如果是完整版可跳过此步）。
+5. **再双击运行** `StartCosyVoice.bat` 启动程序。
+6. 进入主界面参考教程使用即可。
 
 ### 📦 一键包说明
 - **asset/**: 存放测试音频文件，如 `孙笑川_哈喽 大家好 我小孙 这一期收到了一个情感类方面比较抽象的一个粉丝 发来这个东西 而且他说了 这个东西是绝对属实的`，用于快速实验测试,省去自行查找音频片段。
@@ -92,7 +125,7 @@ CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内
 
 ### 适用用户
 - 已在本地 `CosyVoice` 源码目录中完成依赖安装与模型下载。
-- 希望直接将 GUI 集成至现有环境，保持与官方脚本同一套虚拟环境。
+- 希望直接将 GUI 集成至现有环境，保持与官方脚本同一套虚拟环境(使用pixi管理的前提下)。
 
 ### 操作步骤
 1. 切换至 CosyVoice 根目录：
@@ -102,12 +135,12 @@ CosyVoice Desktop 是在官方 CosyVoice 能力之上构建的图形化有声内
 2. 确保虚拟环境已激活且可正常运行官方脚本。
 3. 安装桌面端依赖：
    ```powershell
-   pip install "PyQt-Fluent-Widgets[full]" -i https://pypi.org/simple/
+   pixi install
    ```
 4. 将 `CosyVoiceDesktop` 仓库中的 `main.py`和core文件夹以及ui文件夹 复制到 CosyVoice 根目录或自定义工作目录：
 5. 运行桌面应用：
    ```powershell
-   python main.py
+   pixi run start
    ```
 
 ## 🛠️ 工作流程
@@ -147,8 +180,9 @@ https://github.com/user-attachments/assets/569dbde3-e17f-4241-a723-d52f2b446341
    这通常是因为系统中缺少 `ffmpeg` 环境。
    - **解决方案**：请自行搜索并下载 `ffmpeg`，并将其路径配置到系统的环境变量 `Path` 中。
    - **提示**：一键合成功能主要用于快速预览。对于对话场景，合成后的单音频可能效果不佳，建议将 `output` 文件夹中生成的分段原始音频导入剪辑软件进行精细调整。
+   - **注意**：V1.2 及以后的版本已内置 FFmpeg 库，无需额外配置，该问题应已解决。
 
-3. **模型加载失败**：确保 `pretrained_models` 中的目录与配置指向一致，且显存足够（建议 ≥ 8 GB）。
+3. **模型加载失败**：确保 `pretrained_models` 中的目录与配置指向一致，且显存足够（建议 ≥ 4 GB）。
 
 4. **界面空白或闪退**：确保已安装最新显卡驱动，必要时以管理员权限运行。
 

@@ -146,7 +146,7 @@ class VoiceSettingsInterface(QWidget):
             
             # 模式
             mode_combo = ComboBox()
-            mode_combo.addItems(["零样本复刻", "精细控制", "指令控制"])
+            mode_combo.addItems(["零样本复刻", "精细控制", "指令控制", "语音修补"])
             mode_combo.setCurrentText(config.mode)
             mode_combo.currentTextChanged.connect(lambda text, idx=i: self.update_config_mode(idx, text))
             self.table.setCellWidget(i, 1, mode_combo)
