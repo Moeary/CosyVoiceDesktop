@@ -161,16 +161,6 @@ class CosyVoiceProApp(FluentWindow):
         
         # 文本编辑按钮
         self.text_interface.quick_run_button.clicked.connect(self.quick_run)
-    
-    def on_theme_changed_in_nav(self, text):
-        """侧边栏主题改变"""
-        self.config_manager.set("theme", text)
-        if text == "Light":
-            setTheme(Theme.LIGHT)
-        elif text == "Dark":
-            setTheme(Theme.DARK)
-        else:
-            setTheme(Theme.AUTO)
         self.text_interface.to_task_button.clicked.connect(self.to_task_plan)
         
         # 任务计划按钮
@@ -186,6 +176,16 @@ class CosyVoiceProApp(FluentWindow):
         self.task_interface.output_edit.textChanged.connect(
             lambda text: self.config_manager.set("output_dir", text)
         )
+    
+    def on_theme_changed_in_nav(self, text):
+        """侧边栏主题改变"""
+        self.config_manager.set("theme", text)
+        if text == "Light":
+            setTheme(Theme.LIGHT)
+        elif text == "Dark":
+            setTheme(Theme.DARK)
+        else:
+            setTheme(Theme.AUTO)
 
     def load_initial_config(self):
         """加载初始配置"""
