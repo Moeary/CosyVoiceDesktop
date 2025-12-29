@@ -8,6 +8,36 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from .models import TaskSegment
 
+class ModelLoaderThread(QThread):
+    """后台模型加载线程"""
+    success = pyqtSignal(object)  # 传递模型对象
+    error = pyqtSignal(str)
+    
+    def run(self):
+        try:
+            from .utils import load_cosyvoice_model
+            model = load_cosyvoice_model()
+            self.success.emit(model)
+        except Exception as e:
+            self.error.emit(str(e))
+
+class ModelUnloaderThread(QThread):
+    """后台模型卸载线程"""
+    finished = pyqtSignal()
+    error = pyqtSignal(str)
+    
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+    
+    def run(self):
+        try:
+            from .utils import unload_cosyvoice_model
+            unload_cosyvoice_model(self.model)
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(str(e))
+
 class AudioGenerationWorker(QThread):
     """音频生成工作线程"""
     progress = pyqtSignal(str)  # 日志消息
@@ -107,30 +137,8 @@ class AudioGenerationWorker(QThread):
     
     def load_model(self):
         """加载CosyVoice模型"""
-        # 优先尝试CosyVoice3
-        model_dir = 'pretrained_models/Fun-CosyVoice3-0.5B'
-        if not os.path.exists(model_dir):
-            # 尝试另一个可能的目录名
-            model_dir = 'pretrained_models/CosyVoice3-0.5B'
-            
-        if not os.path.exists(model_dir):
-            # 回退到CosyVoice2
-            model_dir = 'pretrained_models/CosyVoice2-0.5B'
-            
-        if not os.path.exists(model_dir):
-            raise FileNotFoundError(f"模型目录不存在: {model_dir}")
-        
-        sys.path.append('third_party/Matcha-TTS')
-        from cosyvoice.cli.cosyvoice import AutoModel
-        
-        # AutoModel会自动根据yaml选择正确的模型类
-        # 注意：CosyVoice3不支持load_jit参数
-        return AutoModel(
-            model_dir=model_dir, 
-            load_trt=False, 
-            load_vllm=False, 
-            fp16=False
-        )
+        from .utils import load_cosyvoice_model
+        return load_cosyvoice_model()
     
     def get_inference_function(self, segment: TaskSegment):
         """获取推理函数"""

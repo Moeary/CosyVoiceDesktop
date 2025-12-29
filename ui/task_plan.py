@@ -160,7 +160,7 @@ class TaskPlanInterface(QWidget):
             
             # 模式
             mode_combo = ComboBox()
-            mode_combo.addItems(["零样本复刻", "精细控制", "指令控制", "语音修补"])
+            mode_combo.addItems(["零样本复制", "精细控制", "指令控制", "语音修补"])
             mode_combo.setCurrentText(segment.mode)
             mode_combo.currentTextChanged.connect(
                 lambda text, idx=i: self.on_mode_changed(idx, text)

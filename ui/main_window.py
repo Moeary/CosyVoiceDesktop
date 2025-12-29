@@ -5,16 +5,17 @@ import gc
 from typing import List, Optional
 
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import Qt, QUrl
+from PyQt5.QtCore import Qt, QUrl, QTimer, pyqtSignal, QThread
 from PyQt5.QtGui import QIcon
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
 from qfluentwidgets import (
-    FluentWindow, FluentIcon, NavigationItemPosition, InfoBar, InfoBarPosition, setTheme, Theme
+    FluentWindow, FluentIcon, NavigationItemPosition, InfoBar, InfoBarPosition, setTheme, Theme,
+    ComboBox, BodyLabel, PushButton
 )
 
 from core.models import TaskSegment
-from core.worker import AudioGenerationWorker
+from core.worker import AudioGenerationWorker, ModelLoaderThread, ModelUnloaderThread
 from core.utils import merge_audio_files
 from core.config_manager import ConfigManager
 
@@ -22,6 +23,7 @@ from .text_edit import TextEditInterface
 from .task_plan import TaskPlanInterface
 from .voice_settings import VoiceSettingsInterface
 from .settings import SettingsInterface
+from .api_page import APIPageInterface
 
 class CosyVoiceProApp(FluentWindow):
     """主应用程序窗口"""
@@ -31,6 +33,8 @@ class CosyVoiceProApp(FluentWindow):
         self.config_manager = ConfigManager()
         self.cosyvoice_model = None
         self.current_worker = None
+        self.model_loader_thread = None
+        self.model_unloader_thread = None
         
         # Qt5 Audio Setup
         self.media_player = QMediaPlayer()
@@ -41,6 +45,9 @@ class CosyVoiceProApp(FluentWindow):
         self.init_navigation()
         self.connect_signals()
         self.load_initial_config()
+        
+        # 在 GUI 加载完成后，检查是否需要加载模型
+        QTimer.singleShot(500, self.load_model_if_enabled)
     
     def init_window(self):
         self.setWindowTitle("CosyVoice Desktop")
@@ -77,6 +84,10 @@ class CosyVoiceProApp(FluentWindow):
         self.settings_interface = SettingsInterface(self.config_manager)
         self.settings_interface.setObjectName("SettingsInterface")
         
+        # 界面5: API 服务
+        self.api_interface = APIPageInterface(self)
+        self.api_interface.setObjectName("APIPageInterface")
+        
         self.addSubInterface(
             self.text_interface, 
             FluentIcon.EDIT, 
@@ -99,12 +110,49 @@ class CosyVoiceProApp(FluentWindow):
         )
         
         self.addSubInterface(
+            self.api_interface, 
+            FluentIcon.GLOBE, 
+            "API 服务",
+            NavigationItemPosition.TOP
+        )
+        
+        # 在侧边栏添加模型加载按钮
+        self.navigationInterface.addItem(
+            routeKey='load_model',
+            icon=FluentIcon.DOWNLOAD,
+            text='加载模型',
+            onClick=self.on_load_model_clicked,
+            selectable=False,
+            position=NavigationItemPosition.BOTTOM
+        )
+
+        # 在侧边栏添加模型卸载按钮
+        self.navigationInterface.addItem(
+            routeKey='unload_model',
+            icon=FluentIcon.REMOVE,
+            text='卸载模型',
+            onClick=self.on_unload_model_clicked,
+            selectable=False,
+            position=NavigationItemPosition.BOTTOM
+        )
+
+        # 在侧边栏添加主题切换
+        self.navigationInterface.addItem(
+            routeKey='theme_toggle',
+            icon=FluentIcon.BRUSH,
+            text='切换主题',
+            onClick=self.toggle_theme,
+            selectable=False,
+            position=NavigationItemPosition.BOTTOM
+        )
+
+        self.addSubInterface(
             self.settings_interface, 
             FluentIcon.SETTING, 
             "设置",
             NavigationItemPosition.BOTTOM
         )
-    
+        
     def connect_signals(self):
         # 语音设置应用
         self.voice_interface.apply_button.clicked.connect(self.apply_voice_settings)
@@ -113,6 +161,16 @@ class CosyVoiceProApp(FluentWindow):
         
         # 文本编辑按钮
         self.text_interface.quick_run_button.clicked.connect(self.quick_run)
+    
+    def on_theme_changed_in_nav(self, text):
+        """侧边栏主题改变"""
+        self.config_manager.set("theme", text)
+        if text == "Light":
+            setTheme(Theme.LIGHT)
+        elif text == "Dark":
+            setTheme(Theme.DARK)
+        else:
+            setTheme(Theme.AUTO)
         self.text_interface.to_task_button.clicked.connect(self.to_task_plan)
         
         # 任务计划按钮
@@ -153,11 +211,136 @@ class CosyVoiceProApp(FluentWindow):
         # 确保初始配置被应用
         self.apply_voice_settings()
 
-    
     def apply_voice_settings(self):
         """应用语音设置"""
         configs = self.voice_interface.get_voice_configs()
         self.text_interface.set_voice_configs(configs)
+    
+    def toggle_theme(self):
+        """在Light和Dark之间切换主题"""
+        from qfluentwidgets import qconfig
+        if qconfig.theme == Theme.DARK:
+            setTheme(Theme.LIGHT)
+            self.config_manager.set("theme", "Light")
+        else:
+            setTheme(Theme.DARK)
+            self.config_manager.set("theme", "Dark")
+        
+        InfoBar.success(
+            title='成功',
+            content='主题已切换',
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=1500,
+            parent=self
+        )
+    
+    def on_load_model_clicked(self):
+        """手动加载模型"""
+        if self.cosyvoice_model is not None:
+            InfoBar.warning(
+                title='模型已加载',
+                content='CosyVoice 模型已经加载，无需重复加载。',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+        
+        # 创建并启动模型加载线程
+        self.model_loader_thread = ModelLoaderThread()
+        self.model_loader_thread.success.connect(self.on_model_loaded_success)
+        self.model_loader_thread.error.connect(self.on_model_loaded_error)
+        self.model_loader_thread.start()
+    
+    def on_model_loaded_success(self, model):
+        """模型加载成功"""
+        self.cosyvoice_model = model
+        
+        InfoBar.success(
+            title='成功',
+            content='CosyVoice 模型加载成功！',
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
+    
+    def on_model_loaded_error(self, error_msg):
+        """模型加载失败"""
+        InfoBar.error(
+            title='加载失败',
+            content=f'模型加载失败: {error_msg[:50]}',
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self
+        )
+    
+    def on_unload_model_clicked(self):
+        """手动卸载模型"""
+        if self.cosyvoice_model is None:
+            InfoBar.warning(
+                title='没有模型',
+                content='当前没有加载任何模型。',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+        
+        # 检查是否有任务正在运行
+        if self.current_worker and self.current_worker.isRunning():
+            InfoBar.warning(
+                title='任务正在运行',
+                content='请等待当前任务完成后再卸载模型。',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+        
+        # 创建并启动模型卸载线程
+        model_to_unload = self.cosyvoice_model
+        self.cosyvoice_model = None  # 立即清空引用
+        
+        self.model_unloader_thread = ModelUnloaderThread(model_to_unload)
+        self.model_unloader_thread.finished.connect(self.on_model_unloaded_success)
+        self.model_unloader_thread.error.connect(self.on_model_unloaded_error)
+        self.model_unloader_thread.start()
+    
+    def on_model_unloaded_success(self):
+        """模型卸载成功"""
+        InfoBar.success(
+            title='成功',
+            content='CosyVoice 模型已卸载！',
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
+    
+    def on_model_unloaded_error(self, error_msg):
+        """模型卸载失败"""
+        InfoBar.error(
+            title='卸载失败',
+            content=f'模型卸载失败: {error_msg[:50]}',
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self
+        )
     
     def quick_run(self):
         """一键运行"""
@@ -400,18 +583,36 @@ class CosyVoiceProApp(FluentWindow):
         
         self.task_interface.add_log(f"🔊 播放: {os.path.basename(filepath)}")
     
-    def unload_cosyvoice_model(self):
-        """卸载CosyVoice模型"""
-        if self.cosyvoice_model is not None:
-            del self.cosyvoice_model
-            self.cosyvoice_model = None
-            
-            # 清理缓存
-            gc.collect()
-            
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except:
-                pass
+    def load_model_if_enabled(self):
+        """如果设置中启用了自动加载，则加载模型"""
+        auto_load = self.config_manager.get("auto_load_model", False)
+        
+        if not auto_load:
+            return
+        
+        # 从 utils 模块加载函数
+        from core.utils import load_cosyvoice_model
+        
+        try:
+            self.cosyvoice_model = load_cosyvoice_model()
+            # 显示成功提示
+            InfoBar.success(
+                title='模型加载成功',
+                content="CosyVoice 模型已加载，现在可以生成语音了",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+        except Exception as e:
+            print(f"❌ Failed to load model: {e}")
+            InfoBar.warning(
+                title='模型加载失败',
+                content=f"未能加载 CosyVoice 模型，请检查模型文件",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )

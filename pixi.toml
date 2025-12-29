@@ -7,11 +7,14 @@ version = "1.2.0"
 
 [tasks]
 start = "python main.py"
+api = "python core/api.py --config config/小说.json --port 9880 --min_text_length 0"
 
 [dependencies]
 python = "3.12.*"
 ffmpeg = "*"
 modelscope = ">=1.33.0,<2"
+flask = ">=3.1.2,<4"
+flask_cors = ">=4.0.0,<5"
 
 [pypi-dependencies]
 torch = { url = "https://mirrors.aliyun.com/pytorch-wheels/cu128/torch-2.7.0%2Bcu128-cp312-cp312-win_amd64.whl" }
