@@ -1,9 +1,10 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFileDialog
 from qfluentwidgets import (
     ComboBox, SwitchButton, SpinBox, SubtitleLabel, BodyLabel, 
-    setTheme, Theme, PushButton, ScrollArea
+    setTheme, Theme, PushButton, ScrollArea, LineEdit
 )
 from core.config_manager import ConfigManager
+import os
 
 class SettingsInterface(QWidget):
     """设置界面 - 现在包含侧边栏内容"""
@@ -55,7 +56,57 @@ class SettingsInterface(QWidget):
         min_text_tip.setStyleSheet("color: gray; font-size: 12px;")
         layout.addWidget(min_text_tip)
 
+        # 模型路径设置
+        model_path_title = SubtitleLabel("📁 模型路径")
+        layout.addWidget(model_path_title)
+        
+        # CosyVoice 模型路径
+        self.cosyvoice_path_layout, self.cosyvoice_path_edit = self.create_path_setting(
+            "CosyVoice 模型路径", "cosyvoice_model_path"
+        )
+        layout.addLayout(self.cosyvoice_path_layout)
+        
+        # WeText 模型路径
+        self.wetext_path_layout, self.wetext_path_edit = self.create_path_setting(
+            "WeText 模型路径", "wetext_model_path"
+        )
+        layout.addLayout(self.wetext_path_layout)
+
         layout.addStretch()
+
+    def create_path_setting(self, title, config_key, is_dir=True):
+        layout = QVBoxLayout()
+        layout.setSpacing(5)
+        
+        label = BodyLabel(title)
+        layout.addWidget(label)
+        
+        input_layout = QHBoxLayout()
+        line_edit = LineEdit()
+        
+        # Connect text change to save config
+        line_edit.textChanged.connect(lambda text: self.config_manager.set(config_key, text))
+        
+        btn = PushButton("浏览")
+        btn.clicked.connect(lambda: self.browse_path(line_edit, config_key, is_dir))
+        
+        input_layout.addWidget(line_edit)
+        input_layout.addWidget(btn)
+        layout.addLayout(input_layout)
+        
+        return layout, line_edit
+
+    def browse_path(self, line_edit, config_key, is_dir):
+        if is_dir:
+            path = QFileDialog.getExistingDirectory(self, "选择目录", line_edit.text())
+        else:
+            path, _ = QFileDialog.getOpenFileName(self, "选择文件", line_edit.text())
+            
+        if path:
+            # Convert to absolute path
+            abs_path = os.path.abspath(path)
+            line_edit.setText(abs_path)
+            self.config_manager.set(config_key, abs_path)
 
     def load_settings(self):
         auto_load = self.config_manager.get("auto_load_model", False)
@@ -63,6 +114,9 @@ class SettingsInterface(QWidget):
         
         min_text_length = self.config_manager.get("min_text_length", 5)
         self.min_text_spin.setValue(min_text_length)
+
+        self.cosyvoice_path_edit.setText(self.config_manager.get("cosyvoice_model_path", ""))
+        self.wetext_path_edit.setText(self.config_manager.get("wetext_model_path", ""))
 
     def on_auto_load_changed(self, checked):
         self.config_manager.set("auto_load_model", checked)

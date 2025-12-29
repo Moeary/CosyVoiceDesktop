@@ -14,16 +14,23 @@ def load_cosyvoice_model():
         FileNotFoundError: 模型文件不存在
         Exception: 模型加载失败
     """
-    # 优先尝试CosyVoice3
-    model_dir = 'pretrained_models/Fun-CosyVoice3-0.5B'
-    if not os.path.exists(model_dir):
-        # 尝试另一个可能的目录名
-        model_dir = 'pretrained_models/CosyVoice3-0.5B'
-        
-    if not os.path.exists(model_dir):
-        # 回退到CosyVoice2
-        model_dir = 'pretrained_models/CosyVoice2-0.5B'
-        
+    # 从配置中读取模型路径
+    from core.config_manager import ConfigManager
+    config = ConfigManager()
+    model_dir = config.get("cosyvoice_model_path")
+    
+    # 如果配置为空，尝试默认路径
+    if not model_dir or not os.path.exists(model_dir):
+        # 优先尝试CosyVoice3
+        model_dir = 'pretrained_models/Fun-CosyVoice3-0.5B'
+        if not os.path.exists(model_dir):
+            # 尝试另一个可能的目录名
+            model_dir = 'pretrained_models/CosyVoice3-0.5B'
+            
+        if not os.path.exists(model_dir):
+            # 回退到CosyVoice2
+            model_dir = 'pretrained_models/CosyVoice2-0.5B'
+            
     if not os.path.exists(model_dir):
         raise FileNotFoundError(f"模型目录不存在: {model_dir}")
     
