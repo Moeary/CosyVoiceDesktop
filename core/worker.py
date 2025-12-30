@@ -188,19 +188,6 @@ class AudioGenerationWorker(QThread):
                 )
             return inference
         
-        elif segment.mode == '语音修补':
-            def inference(seg, prompt_audio):
-                prompt_text = seg.voice_config.prompt_text
-                # 语音修补本质上是Zero-Shot，但文本可能包含发音修正标记
-                if is_v3 and '<|endofprompt|>' not in prompt_text:
-                    prompt_text = f'You are a helpful assistant.<|endofprompt|>{prompt_text}'
-                
-                return self.cosyvoice.inference_zero_shot(
-                    seg.text, prompt_text, 
-                    prompt_audio, stream=False
-                )
-            return inference
-        
         else:  # 默认回退到零样本
             def inference(seg, prompt_audio):
                 prompt_text = seg.voice_config.prompt_text

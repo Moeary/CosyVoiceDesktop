@@ -1,9 +1,9 @@
 [workspace]
 authors = ["Moeary"]
 channels = ["conda-forge"]
-name = "CosyVoiceGUI"
+name = "CosyVoiceDesktop"
 platforms = ["win-64"]
-version = "1.2.0"
+version = "1.4.0"
 
 [tasks]
 start = "python main.py"

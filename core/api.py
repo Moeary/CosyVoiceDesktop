@@ -7,7 +7,13 @@ import argparse
 import subprocess
 import tempfile
 import logging
+import warnings
 from pathlib import Path
+
+# 禁用 tqdm
+os.environ["TQDM_DISABLE"] = "1"
+# 忽略所有警告
+warnings.filterwarnings("ignore")
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(ROOT_DIR, '..'))
@@ -27,7 +33,16 @@ from flask_cors import CORS
 
 # 创建 logger
 api_logger = logging.getLogger('cosyvoice_api')
-api_logger.setLevel(logging.DEBUG)
+api_logger.setLevel(logging.INFO)
+api_logger.propagate = False  # 防止日志传播到根记录器导致重复
+
+# 屏蔽第三方库的繁杂日志
+logging.getLogger('cosyvoice').setLevel(logging.ERROR)
+logging.getLogger('Matcha-TTS').setLevel(logging.ERROR)
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
+logging.getLogger('httpx').setLevel(logging.ERROR)
+logging.getLogger('torch').setLevel(logging.ERROR)
+logging.getLogger('lightning').setLevel(logging.ERROR)
 
 # 创建一个处理器用于日志回调
 log_callbacks = []
@@ -75,7 +90,7 @@ class CharacterConfig:
     def load_characters(self):
         """从 JSON 文件加载角色配置"""
         if not os.path.exists(self.config_file):
-            print(f"⚠️ Config file not found: {self.config_file}")
+            api_logger.warning(f"⚠️ Config file not found: {self.config_file}")
             return
         
         try:
@@ -89,15 +104,15 @@ class CharacterConfig:
                     char_name = char.get('name', '')
                     if char_name:
                         self.characters[char_name] = char
-                        print(f"✅ Loaded character: {char_name}")
             else:
                 # 单个对象格式
                 char_name = config_data.get('name', 'default')
                 self.characters[char_name] = config_data
-                print(f"✅ Loaded character: {char_name}")
+            
+            api_logger.info(f"✅ Loaded {len(self.characters)} characters from {os.path.basename(self.config_file)}")
         
         except Exception as e:
-            print(f"❌ Failed to load {self.config_file}: {e}")
+            api_logger.error(f"❌ Failed to load {self.config_file}: {e}")
     
     def get_character(self, char_name: str) -> dict:
         """获取角色配置"""
@@ -240,7 +255,7 @@ def set_min_text_length(length: int):
     """设置最小文本长度"""
     global min_text_length
     min_text_length = length
-    api_logger.info(f'✅ Min text length set to {length}')
+    api_logger.debug(f'✅ Min text length set to {length}')
 
 
 # ==================== 酒馆标准 API 端点 ====================
@@ -287,7 +302,7 @@ def tts_tavern():
         character_name = data.get('speaker', '').strip()  # 酒馆使用 speaker 参数
         speed = float(data.get('speed', 1.0))
         
-        print(f"📝 POST / request: speaker={character_name}, speed={speed}, text_len={len(text)}")
+        api_logger.info(f"📝 POST / request: speaker={character_name}, speed={speed}, text_len={len(text)}")
         
         if not text:
             response = app.response_class(
@@ -376,7 +391,7 @@ def tts_api():
     {
         "text": "要生成的文本",
         "character_name": "角色名称",
-        "mode": "零样本复制|精细控制|指令控制|语音修补 (可选)",
+        "mode": "零样本复制|精细控制|指令控制",
         "speed": 1.0
     }
     """
@@ -408,7 +423,7 @@ def tts_api():
         mode = data.get('mode', None)
         speed = float(data.get('speed', 1.0))
         
-        print(f"📝 POST /api/tts: character={character_name}, mode={mode}, speed={speed}, text_len={len(text)}")
+        api_logger.info(f"📝 POST /api/tts: character={character_name}, mode={mode}, speed={speed}, text_len={len(text)}")
         
         if not text:
             response = app.response_class(
@@ -595,7 +610,7 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
     Args:
         text: 要生成的文本
         char_config: 角色配置
-        mode: 推理模式 (零样本复制|精细控制|指令控制|语音修补)
+        mode: 推理模式 (零样本复制|精细控制|指令控制)
         speed: 语速倍数
     
     Returns:
@@ -633,11 +648,10 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
                 return None
             
             if not prompt_text:
-                print(f"❌ [零样本] Prompt text not found in config")
+                api_logger.error(f"❌ [零样本] Prompt text not found in config")
                 return None
             
-            print(f"[零样本] 参考音频: {os.path.basename(prompt_audio_path)}")
-            print(f"[零样本] 参考文本: {prompt_text[:50]}...")
+            api_logger.debug(f"[零样本] 参考音频: {os.path.basename(prompt_audio_path)}")
             
             # CosyVoice3 需要特定的 prompt 格式
             is_v3 = 'CosyVoice3' in getattr(cosyvoice, 'model_dir', '')
@@ -645,7 +659,6 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
                 prompt_text = f'You are a helpful assistant.<|endofprompt|>{prompt_text}'
             
             try:
-                print(f"[零样本] 调用 inference_zero_shot...")
                 # 直接传递路径，让 CosyVoice 内部处理音频加载
                 for output in cosyvoice.inference_zero_shot(
                     text,
@@ -653,9 +666,8 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
                     prompt_audio_path
                 ):
                     tts_speeches.append(output['tts_speech'])
-                print(f"[零样本] 成功生成 {len(tts_speeches)} 个语音段")
             except Exception as e:
-                print(f"❌ [零样本] 推理异常: {e}")
+                api_logger.error(f"❌ [零样本] 推理异常: {e}")
                 import traceback
                 traceback.print_exc()
                 return None
@@ -666,15 +678,14 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
             instruct_text = char_config.get('instruct_text', '')
             
             if not prompt_audio_path or not os.path.exists(prompt_audio_path):
-                print(f"❌ [指令控制] Prompt audio not found: {prompt_audio_path}")
+                api_logger.error(f"❌ [指令控制] Prompt audio not found: {prompt_audio_path}")
                 return None
             
             if not instruct_text:
-                print(f"❌ [指令控制] Instruction text not found in config")
+                api_logger.error(f"❌ [指令控制] Instruction text not found in config")
                 return None
             
-            print(f"[指令控制] 参考音频: {os.path.basename(prompt_audio_path)}")
-            print(f"[指令控制] 指令文本: {instruct_text[:50]}...")
+            api_logger.debug(f"[指令控制] 参考音频: {os.path.basename(prompt_audio_path)}")
             
             # CosyVoice3 指令模式使用 inference_instruct2
             is_v3 = 'CosyVoice3' in getattr(cosyvoice, 'model_dir', '')
@@ -685,16 +696,14 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
                     instruct_text = f'You are a helpful assistant. {instruct_text}'
             
             try:
-                print(f"[指令控制] 调用 inference_instruct2...")
                 for output in cosyvoice.inference_instruct2(
                     text,
                     instruct_text,
                     prompt_audio_path
                 ):
                     tts_speeches.append(output['tts_speech'])
-                print(f"[指令控制] 成功生成 {len(tts_speeches)} 个语音段")
             except Exception as e:
-                print(f"❌ [指令控制] 推理异常: {e}")
+                api_logger.error(f"❌ [指令控制] 推理异常: {e}")
                 import traceback
                 traceback.print_exc()
                 return None
@@ -704,10 +713,10 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
             prompt_audio_path = char_config.get('prompt_audio')
             
             if not prompt_audio_path or not os.path.exists(prompt_audio_path):
-                print(f"❌ [精细控制] Prompt audio not found: {prompt_audio_path}")
+                api_logger.error(f"❌ [精细控制] Prompt audio not found: {prompt_audio_path}")
                 return None
             
-            print(f"[精细控制] 参考音频: {os.path.basename(prompt_audio_path)}")
+            api_logger.debug(f"[精细控制] 参考音频: {os.path.basename(prompt_audio_path)}")
             
             # CosyVoice3 精细控制需要在文本前加指令
             tts_text = text
@@ -716,22 +725,20 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
                 tts_text = f'You are a helpful assistant.<|endofprompt|>{tts_text}'
             
             try:
-                print(f"[精细控制] 调用 inference_cross_lingual...")
                 # 使用 inference_cross_lingual
                 for output in cosyvoice.inference_cross_lingual(
                     tts_text,
                     prompt_audio_path
                 ):
                     tts_speeches.append(output['tts_speech'])
-                print(f"[精细控制] 成功生成 {len(tts_speeches)} 个语音段")
             except Exception as e:
-                print(f"❌ [精细控制] 推理异常: {e}")
+                api_logger.error(f"❌ [精细控制] 推理异常: {e}")
                 import traceback
                 traceback.print_exc()
                 return None
         
         else:
-            print(f"❌ Unknown mode: {mode}")
+            api_logger.error(f"❌ Unknown mode: {mode}")
             return None
         
         if not tts_speeches:
@@ -760,7 +767,7 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
             else:
                 os.unlink(temp_input_path)
                 os.unlink(temp_output_path)
-                print("⚠️ Speed change failed, returning original audio")
+                api_logger.warning("⚠️ Speed change failed, returning original audio")
         
         # 保存到内存缓冲区
         buffer = io.BytesIO()
@@ -777,7 +784,7 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
         return buffer
     
     except Exception as e:
-        print(f"❌ [推理] 总体异常: {type(e).__name__}: {e}")
+        api_logger.error(f"❌ [推理] 总体异常: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -836,12 +843,12 @@ if __name__ == "__main__":
     set_min_text_length(args.min_text_length)
     
     # 启动前加载模型
-    print(f"📦 Loading CosyVoice model...")
+    api_logger.info(f"📦 Loading CosyVoice model...")
     try:
         cosyvoice = load_cosyvoice_model()
-        print(f"✅ Model loaded successfully")
+        api_logger.info(f"✅ Model loaded successfully")
     except Exception as e:
-        print(f"❌ Failed to load model: {e}")
+        api_logger.error(f"❌ Failed to load model: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
@@ -849,12 +856,11 @@ if __name__ == "__main__":
     # 启动服务器
     print(f"\n🚀 Starting CosyVoice3 API Server...")
     print(f"📍 Host: {args.host}:{args.port}")
-    print(f"📁 Config file: {config_file}")
-    print(f"👥 Available characters: {character_config.list_characters()}")
     print(f"🔗 Health check: http://{args.host}:{args.port}/api/health")
-    print(f"🔗 Tavern API: GET http://{args.host}:{args.port}/speakers")
-    print(f"🔗 TTS endpoint: POST http://{args.host}:{args.port}/api/tts")
-    print(f"🔗 Characters: GET http://{args.host}:{args.port}/api/characters")
+    
+    # 禁用 Flask 默认的 banner
+    cli = sys.modules['flask.cli']
+    cli.show_server_banner = lambda *x: None
     
     app.run(
         host=args.host,
