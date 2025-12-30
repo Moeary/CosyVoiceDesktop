@@ -234,7 +234,7 @@ CORS(app)
 character_config = None
 
 # 全局最小文本长度配置
-min_text_length = 5  # 默认5个字符
+min_text_length = 0  # 默认0个字符，不限制
 
 def set_min_text_length(length: int):
     """设置最小文本长度"""
@@ -332,7 +332,7 @@ def tts_tavern():
             )
             return response
         
-        api_logger.info(f'🎯 Starting inference: mode={char_config.get("mode")}, speed={speed}, text_len={len(text)}')
+        api_logger.info(f'🎯 开始推理: 模式={char_config.get("mode")}, 速度={speed}, 文本长度={len(text)}')
         
         # 调用推理（不指定模式，从配置读取）
         audio_buffer = _inference(
@@ -352,7 +352,6 @@ def tts_tavern():
             )
             return response
         
-        api_logger.info(f'✅ Audio generated: size={audio_buffer.getbuffer().nbytes} bytes')
         audio_buffer.seek(0)
         return Response(audio_buffer.read(), mimetype='audio/wav')
     
@@ -454,7 +453,7 @@ def tts_api():
             )
             return response
         
-        api_logger.info(f'🎯 Starting inference: mode={mode or char_config.get("mode")}, speed={speed}, text_len={len(text)}')
+        api_logger.info(f'🎯 开始推理: 模式={mode or char_config.get("mode")}, 速度={speed}, 文本长度={len(text)}')
         
         # 调用推理
         audio_buffer = _inference(
@@ -474,7 +473,6 @@ def tts_api():
             )
             return response
         
-        api_logger.info(f'✅ Audio generated: size={audio_buffer.getbuffer().nbytes} bytes')
         audio_buffer.seek(0)
         return Response(audio_buffer.read(), mimetype='audio/wav')
     
@@ -611,7 +609,6 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
         # 显示推理文本（截断显示前100个字符）
         display_text = text[:100] + "..." if len(text) > 100 else text
         api_logger.info(f"📝 推理文本: {display_text}")
-        api_logger.info(f"⏱️ 文本长度: {len(text)} 字符")
         
         if mode is None:
             mode = char_config.get('mode', '零样本复制')
@@ -623,7 +620,6 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
             'instruction': '指令控制',
         }
         mode = mode_mapping.get(mode, mode)
-        api_logger.info(f"🎵 模式: {mode}")
         
         tts_speeches = []
         
@@ -776,9 +772,7 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
         audio_duration = audio_data.shape[1] / sample_rate if audio_data.numel() > 0 else 0
         audio_size_mb = buffer.getbuffer().nbytes / (1024 * 1024)
         
-        api_logger.info(f"✅ 推理成功")
-        api_logger.info(f"🎵 音频时长: {audio_duration:.2f} 秒")
-        api_logger.info(f"💾 文件大小: {buffer.getbuffer().nbytes} 字节 ({audio_size_mb:.2f} MB)")
+        api_logger.info(f"✅ 推理成功 | 🎵 音频时长: {audio_duration:.2f} 秒 | 💾 文件大小: {buffer.getbuffer().nbytes} 字节 ({audio_size_mb:.2f} MB)")
         
         return buffer
     
@@ -820,7 +814,7 @@ if __name__ == "__main__":
         '--min_text_length',
         type=int,
         default=0,
-        help='设置最小文本长度，低于该长度的请求将被跳过 (默认: 0，不限制)'
+        help='设置最小文本长度，低于该长度的请求将被跳过 (默认: 0，不限制) 但是低了于4个字符可能效果不好甚至导致推理不出来'
     )
     
     args = parser.parse_args()
