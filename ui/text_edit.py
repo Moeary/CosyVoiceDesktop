@@ -7,7 +7,8 @@ from PyQt5.QtGui import QTextCursor, QTextCharFormat, QColor
 
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, TextEdit, SubtitleLabel,
-    BodyLabel, SimpleCardWidget, FluentIcon, InfoBar, InfoBarPosition
+    BodyLabel, SimpleCardWidget, FluentIcon, InfoBar, InfoBarPosition,
+    RoundMenu, Action
 )
 
 from core.models import VoiceConfig
@@ -29,6 +30,17 @@ class CustomTextEdit(TextEdit):
             'breath': {'tag': '[breath]', 'name': '呼吸', 'shortcut': 'Alt+B'},
             'laugh_burst': {'tag': '[laughter]', 'name': '笑声爆发', 'shortcut': 'Alt+Shift+L'},
             'endofprompt': {'tag': '<|endofprompt|>', 'name': '指令结束符', 'shortcut': 'Alt+E'},
+            'noise': {'tag': '[noise]', 'name': '噪音', 'shortcut': 'Alt+N'},
+            'cough': {'tag': '[cough]', 'name': '咳嗽', 'shortcut': 'Alt+C'},
+            'clucking': {'tag': '[clucking]', 'name': '咯咯声', 'shortcut': 'Alt+K'},
+            'accent': {'tag': '[accent]', 'name': '口音', 'shortcut': 'Alt+A'},
+            'quick_breath': {'tag': '[quick_breath]', 'name': '急促呼吸', 'shortcut': 'Alt+Q'},
+            'hissing': {'tag': '[hissing]', 'name': '嘶嘶声', 'shortcut': 'Alt+H'},
+            'sigh': {'tag': '[sigh]', 'name': '叹气', 'shortcut': 'Alt+I'},
+            'vocalized_noise': {'tag': '[vocalized-noise]', 'name': '发声噪音', 'shortcut': 'Alt+V'},
+            'lipsmack': {'tag': '[lipsmack]', 'name': '咂嘴', 'shortcut': 'Alt+P'},
+            'mn': {'tag': '[mn]', 'name': '嗯', 'shortcut': 'Alt+M'},
+            'endofsystem': {'tag': '<|endofsystem|>', 'name': '系统结束符', 'shortcut': 'Alt+Shift+E'},
         }
     
     def set_voice_configs(self, configs: Dict[str, VoiceConfig]):
@@ -62,54 +74,82 @@ class CustomTextEdit(TextEdit):
             elif key == Qt.Key_E:  # Alt+E: 指令结束符
                 self.insert_tag('endofprompt')
                 return
+            elif key == Qt.Key_N:  # Alt+N: 噪音
+                self.insert_tag('noise')
+                return
+            elif key == Qt.Key_C:  # Alt+C: 咳嗽
+                self.insert_tag('cough')
+                return
+            elif key == Qt.Key_K:  # Alt+K: 咯咯声
+                self.insert_tag('clucking')
+                return
+            elif key == Qt.Key_A:  # Alt+A: 口音
+                self.insert_tag('accent')
+                return
+            elif key == Qt.Key_Q:  # Alt+Q: 急促呼吸
+                self.insert_tag('quick_breath')
+                return
+            elif key == Qt.Key_H:  # Alt+H: 嘶嘶声
+                self.insert_tag('hissing')
+                return
+            elif key == Qt.Key_I:  # Alt+I: 叹气
+                self.insert_tag('sigh')
+                return
+            elif key == Qt.Key_V:  # Alt+V: 发声噪音
+                self.insert_tag('vocalized_noise')
+                return
+            elif key == Qt.Key_P:  # Alt+P: 咂嘴
+                self.insert_tag('lipsmack')
+                return
+            elif key == Qt.Key_M:  # Alt+M: 嗯
+                self.insert_tag('mn')
+                return
         
         # Alt+Shift+L: 笑声爆发
         if event.modifiers() == (Qt.AltModifier | Qt.ShiftModifier):
             if event.key() == Qt.Key_L:
                 self.insert_tag('laugh_burst')
                 return
+            elif event.key() == Qt.Key_E:
+                self.insert_tag('endofsystem')
+                return
         
         super().keyPressEvent(event)
     
     def show_context_menu(self, position: QPoint):
-        menu = QMenu(self)
+        menu = RoundMenu(parent=self)
         
         if self.textCursor().hasSelection():
-            copy_action = QAction("复制", self)
-            copy_action.triggered.connect(self.copy)
-            menu.addAction(copy_action)
-            
-            cut_action = QAction("剪切", self)
-            cut_action.triggered.connect(self.cut)
-            menu.addAction(cut_action)
+            menu.addAction(Action(FluentIcon.COPY, "复制", self, triggered=self.copy))
+            menu.addAction(Action(FluentIcon.CUT, "剪切", self, triggered=self.cut))
         
-        paste_action = QAction("粘贴", self)
-        paste_action.triggered.connect(self.paste)
-        menu.addAction(paste_action)
+        menu.addAction(Action(FluentIcon.PASTE, "粘贴", self, triggered=self.paste))
         
         menu.addSeparator()
         
-        select_all_action = QAction("全选", self)
-        select_all_action.triggered.connect(self.selectAll)
-        menu.addAction(select_all_action)
+        menu.addAction(Action(FluentIcon.TILES, "全选", self, triggered=self.selectAll))
         
         # 快捷指令菜单
         if self.textCursor().hasSelection() or True:
             menu.addSeparator()
-            tag_menu = menu.addMenu("🏷️ 插入控制标签")
+            tag_menu = RoundMenu("🏷️ 插入控制标签", self)
+            tag_menu.setIcon(FluentIcon.TAG)
+            menu.addMenu(tag_menu)
             
             for tag_key, tag_info in self.quick_tags.items():
-                action = QAction(f"{tag_info['name']} ({tag_info['shortcut']})", self)
+                action = Action(FluentIcon.TAG, f"{tag_info['name']} ({tag_info['shortcut']})", self)
                 action.triggered.connect(lambda checked, key=tag_key: self.insert_tag(key))
                 tag_menu.addAction(action)
         
         # 语音配置菜单
         if self.textCursor().hasSelection() and self.voice_configs:
             menu.addSeparator()
-            voice_menu = menu.addMenu("🎤 应用语音配置")
+            voice_menu = RoundMenu("🎤 应用语音配置", self)
+            voice_menu.setIcon(FluentIcon.MICROPHONE)
+            menu.addMenu(voice_menu)
             
             for i, (config_name, config) in enumerate(self.voice_configs.items()):
-                action = QAction(f"Ctrl+{i+1}: {config_name} ({config.mode})", self)
+                action = Action(FluentIcon.PEOPLE, f"Ctrl+{i+1}: {config_name} ({config.mode})", self)
                 action.triggered.connect(lambda checked, name=config_name: self.apply_voice_config(name))
                 voice_menu.addAction(action)
         

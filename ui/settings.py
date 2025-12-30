@@ -52,13 +52,19 @@ class SettingsInterface(QWidget):
         layout.addLayout(min_text_layout)
         
         # 提示信息
-        min_text_tip = BodyLabel("低于此长度的文本会被跳过，避免推理失败（推荐 5-10 字符）")
+        min_text_tip = BodyLabel("使用API时,低于此长度的文本会被跳过，避免推理失败（推荐4字符）")
         min_text_tip.setStyleSheet("color: gray; font-size: 12px;")
         layout.addWidget(min_text_tip)
 
-        # 模型路径设置
-        model_path_title = SubtitleLabel("📁 模型路径")
-        layout.addWidget(model_path_title)
+        # 路径设置
+        path_title = SubtitleLabel("📁 路径设置")
+        layout.addWidget(path_title)
+        
+        # 输出目录
+        self.output_path_layout, self.output_path_edit = self.create_path_setting(
+            "默认输出目录", "output_dir"
+        )
+        layout.addLayout(self.output_path_layout)
         
         # CosyVoice 模型路径
         self.cosyvoice_path_layout, self.cosyvoice_path_edit = self.create_path_setting(
@@ -115,6 +121,7 @@ class SettingsInterface(QWidget):
         min_text_length = self.config_manager.get("min_text_length", 5)
         self.min_text_spin.setValue(min_text_length)
 
+        self.output_path_edit.setText(self.config_manager.get("output_dir", "./output"))
         self.cosyvoice_path_edit.setText(self.config_manager.get("cosyvoice_model_path", ""))
         self.wetext_path_edit.setText(self.config_manager.get("wetext_model_path", ""))
 

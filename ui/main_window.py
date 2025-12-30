@@ -73,7 +73,7 @@ class CosyVoiceProApp(FluentWindow):
         self.text_interface.setObjectName("TextEditInterface")
         
         # 界面2: 任务计划
-        self.task_interface = TaskPlanInterface()
+        self.task_interface = TaskPlanInterface(self.config_manager)
         self.task_interface.setObjectName("TaskPlanInterface")
         
         # 界面3: 语音设置
@@ -173,9 +173,6 @@ class CosyVoiceProApp(FluentWindow):
         self.task_interface.project_edit.textChanged.connect(
             lambda text: self.config_manager.set("project_name", text)
         )
-        self.task_interface.output_edit.textChanged.connect(
-            lambda text: self.config_manager.set("output_dir", text)
-        )
     
     def on_theme_changed_in_nav(self, text):
         """侧边栏主题改变"""
@@ -191,12 +188,12 @@ class CosyVoiceProApp(FluentWindow):
         """加载初始配置"""
         # 加载项目名和输出目录
         project_name = self.config_manager.get("project_name", "project")
-        output_dir = self.config_manager.get("output_dir", "./output")
+        # output_dir = self.config_manager.get("output_dir", "./output") # output_dir is now managed globally
         
         self.task_interface.project_edit.setText(project_name)
-        self.task_interface.output_edit.setText(output_dir)
+        # self.task_interface.output_edit.setText(output_dir)
         self.task_interface.project_name = project_name
-        self.task_interface.output_dir = output_dir
+        # self.task_interface.output_dir = output_dir
         
         # 自动加载上次的语音配置
         voice_config_path = self.config_manager.get("voice_config_path", "")
@@ -215,6 +212,7 @@ class CosyVoiceProApp(FluentWindow):
         """应用语音设置"""
         configs = self.voice_interface.get_voice_configs()
         self.text_interface.set_voice_configs(configs)
+        self.task_interface.set_all_voice_configs(configs)
     
     def toggle_theme(self):
         """在Light和Dark之间切换主题"""
