@@ -11,7 +11,9 @@ class ConfigManager:
             "theme": "Light",
             "voice_config_path": "",
             "project_name": "project",
-            "output_dir": "./output"
+            "output_dir": "./output",
+            "cosyvoice_model_path": os.path.abspath("./pretrained_models/Fun-CosyVoice3-0.5B"),
+            "wetext_model_path": os.path.abspath("./pretrained_models/wetext")
         }
         self.load_config()
 

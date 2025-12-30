@@ -11,7 +11,8 @@ from PyQt5.QtGui import QColor
 
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, TableWidget, LineEdit,
-    ComboBox, FluentIcon, SubtitleLabel, ToolButton, InfoBar, InfoBarPosition
+    ComboBox, FluentIcon, SubtitleLabel, ToolButton, InfoBar, InfoBarPosition,
+    RoundMenu, Action
 )
 
 from core.models import VoiceConfig
@@ -48,16 +49,26 @@ class VoiceSettingsInterface(QWidget):
         self.table.setHorizontalHeaderLabels(["名称", "模式", "参考文本", "参考音频", "指令文本", "颜色"])
         
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.Stretch)
-        header.setSectionResizeMode(5, QHeaderView.Fixed)
+        # 允许用户调整列宽
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        # 设置最小宽度
+        header.setMinimumSectionSize(60)
+        # 让最后一列填充剩余空间
+        header.setStretchLastSection(True)
         
         self.table.setColumnWidth(0, 120)
         self.table.setColumnWidth(1, 120)
+        self.table.setColumnWidth(2, 200)
+        self.table.setColumnWidth(3, 200)
+        self.table.setColumnWidth(4, 200)
         self.table.setColumnWidth(5, 80)
+        
+        # 隐藏垂直表头
+        self.table.verticalHeader().setVisible(False)
+        
+        # 启用右键菜单
+        # self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        # self.table.customContextMenuRequested.connect(self.show_context_menu)
         
         layout.addWidget(self.table)
         
@@ -68,9 +79,9 @@ class VoiceSettingsInterface(QWidget):
         self.add_button.clicked.connect(self.add_config)
         button_layout.addWidget(self.add_button)
         
-        self.remove_button = PushButton("➖ 删除配置")
-        self.remove_button.clicked.connect(self.remove_config)
-        button_layout.addWidget(self.remove_button)
+        # self.remove_button = PushButton("➖ 删除配置")
+        # self.remove_button.clicked.connect(self.remove_config)
+        # button_layout.addWidget(self.remove_button)
         
         button_layout.addStretch()
         
@@ -96,44 +107,16 @@ class VoiceSettingsInterface(QWidget):
             # 添加默认配置
             self.add_config()
     
-    # def unload_model(self):
-    #     """卸载模型"""
-    #     reply = QMessageBox.question(
-    #         self, "确认卸载", 
-    #         "确定要卸载CosyVoice模型吗？\n这将释放显存，但下次生成时需要重新加载。",
-    #         QMessageBox.Yes | QMessageBox.No
-    #     )
-    #     
-    #     if reply == QMessageBox.Yes:
-    #         # 通知主窗口卸载模型
-    #         main_window = self.window()
-    #         if hasattr(main_window, 'unload_cosyvoice_model'):
-    #             main_window.unload_cosyvoice_model()
-    #             InfoBar.success(
-    #                 title="卸载成功",
-    #                 content="模型已从显存中卸载",
-    #                 orient=Qt.Horizontal,
-    #                 isClosable=True,
-    #                 position=InfoBarPosition.TOP,
-    #                 duration=2000,
-    #                 parent=self
-    #             )
-    
     def add_config(self):
         config = VoiceConfig(
             name=f"语音配置{len(self.voice_configs) + 1}",
-            mode="零样本复刻",
+            mode="零样本复制",
             color=f"#{hash(f'config{len(self.voice_configs)}') % 0xFFFFFF:06x}"
         )
         self.voice_configs.append(config)
         self.update_table()
     
-    def remove_config(self):
-        current_row = self.table.currentRow()
-        if 0 <= current_row < len(self.voice_configs):
-            self.voice_configs.pop(current_row)
-            self.update_table()
-    
+
     def update_table(self):
         self.table.setRowCount(len(self.voice_configs))
         
@@ -142,35 +125,44 @@ class VoiceSettingsInterface(QWidget):
             name_edit = LineEdit()
             name_edit.setText(config.name)
             name_edit.textChanged.connect(lambda text, idx=i: self.update_config_name(idx, text))
+            self.setup_widget_context_menu(name_edit, i)
             self.table.setCellWidget(i, 0, name_edit)
             
             # 模式
             mode_combo = ComboBox()
-            mode_combo.addItems(["零样本复刻", "精细控制", "指令控制", "语音修补"])
+            mode_combo.addItems(["零样本复制", "精细控制", "指令控制"])
             mode_combo.setCurrentText(config.mode)
             mode_combo.currentTextChanged.connect(lambda text, idx=i: self.update_config_mode(idx, text))
+            self.setup_widget_context_menu(mode_combo, i)
             self.table.setCellWidget(i, 1, mode_combo)
             
             # 参考文本
             prompt_text_edit = LineEdit()
             prompt_text_edit.setText(config.prompt_text)
             prompt_text_edit.textChanged.connect(lambda text, idx=i: self.update_config_prompt_text(idx, text))
+            self.setup_widget_context_menu(prompt_text_edit, i)
             self.table.setCellWidget(i, 2, prompt_text_edit)
             
             # 参考音频
             audio_layout = QHBoxLayout()
+            audio_layout.setContentsMargins(4, 4, 4, 4)
+            audio_layout.setSpacing(4)
+            
             audio_edit = LineEdit()
             audio_edit.setText(config.prompt_audio)
+            audio_edit.setPlaceholderText("选择或输入音频路径")
             audio_edit.textChanged.connect(lambda text, idx=i: self.update_config_prompt_audio(idx, text))
+            self.setup_widget_context_menu(audio_edit, i)
             
-            browse_button = ToolButton()
-            browse_button.setIcon(FluentIcon.FOLDER)
+            browse_button = ToolButton(FluentIcon.FOLDER)
+            browse_button.setToolTip("选择音频文件")
             browse_button.clicked.connect(lambda checked, idx=i: self.browse_audio_file(idx))
+            self.setup_widget_context_menu(browse_button, i)
             
-            audio_widget = QWidget()
             audio_layout.addWidget(audio_edit)
             audio_layout.addWidget(browse_button)
-            audio_layout.setContentsMargins(0, 0, 0, 0)
+            
+            audio_widget = QWidget()
             audio_widget.setLayout(audio_layout)
             self.table.setCellWidget(i, 3, audio_widget)
             
@@ -178,13 +170,68 @@ class VoiceSettingsInterface(QWidget):
             instruct_edit = LineEdit()
             instruct_edit.setText(config.instruct_text)
             instruct_edit.textChanged.connect(lambda text, idx=i: self.update_config_instruct_text(idx, text))
+            self.setup_widget_context_menu(instruct_edit, i)
             self.table.setCellWidget(i, 4, instruct_edit)
             
             # 颜色
+            color_widget = QWidget()
+            color_layout = QHBoxLayout(color_widget)
+            color_layout.setContentsMargins(0, 0, 0, 0)
+            color_layout.setAlignment(Qt.AlignCenter)
+            
             color_button = PushButton()
-            color_button.setStyleSheet(f"background-color: {config.color}; min-width: 60px; min-height: 30px;")
+            color_button.setFixedSize(50, 36)
+            color_button.setCursor(Qt.PointingHandCursor)
+            # 圆角矩形样式
+            color_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {config.color};
+                    border: 1px solid #e0e0e0;
+                    border-radius: 10px;
+                }}
+                QPushButton:hover {{
+                    border: 1px solid #d0d0d0;
+                }}
+            """)
             color_button.clicked.connect(lambda checked, idx=i: self.choose_color(idx))
-            self.table.setCellWidget(i, 5, color_button)
+            self.setup_widget_context_menu(color_button, i)
+            
+            color_layout.addWidget(color_button)
+            self.table.setCellWidget(i, 5, color_widget)
+
+    def setup_widget_context_menu(self, widget, row_index):
+        """为子控件设置右键菜单"""
+        widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        widget.customContextMenuRequested.connect(
+            lambda pos, w=widget, r=row_index: self.on_child_context_menu(pos, w, r)
+        )
+
+    def on_child_context_menu(self, pos, widget, row_index):
+        """处理子控件的右键菜单"""
+        # 选中当前行
+        self.table.selectRow(row_index)
+        
+        menu = RoundMenu(parent=self)
+        
+        # 如果是文本框，添加标准文本操作
+        if isinstance(widget, LineEdit):
+            menu.addAction(Action(FluentIcon.CUT, "剪切", triggered=widget.cut))
+            menu.addAction(Action(FluentIcon.COPY, "复制", triggered=widget.copy))
+            menu.addAction(Action(FluentIcon.PASTE, "粘贴", triggered=widget.paste))
+            menu.addSeparator()
+        
+        # 添加行操作
+        menu.addAction(Action(FluentIcon.ADD, "在上方插入配置", self, triggered=lambda: self.insert_config(row_index)))
+        menu.addAction(Action(FluentIcon.ADD, "在下方插入配置", self, triggered=lambda: self.insert_config(row_index + 1)))
+        
+        menu.addSeparator()
+        menu.addAction(Action(FluentIcon.UP, "上移", self, triggered=lambda: self.move_config(row_index, -1)))
+        menu.addAction(Action(FluentIcon.DOWN, "下移", self, triggered=lambda: self.move_config(row_index, 1)))
+        
+        menu.addSeparator()
+        menu.addAction(Action(FluentIcon.DELETE, "删除配置", self, triggered=lambda: self.delete_config(row_index)))
+        
+        menu.exec_(widget.mapToGlobal(pos))
     
     def update_config_name(self, index: int, name: str):
         if 0 <= index < len(self.voice_configs):
@@ -221,7 +268,37 @@ class VoiceSettingsInterface(QWidget):
             if color.isValid():
                 self.voice_configs[index].color = color.name()
                 self.update_table()
-    
+
+
+    def insert_config(self, index: int):
+        """插入配置"""
+        config = VoiceConfig(
+            name=f"语音配置{len(self.voice_configs) + 1}",
+            mode="零样本复制",
+            color=f"#{hash(f'config{len(self.voice_configs)}') % 0xFFFFFF:06x}"
+        )
+        
+        if 0 <= index <= len(self.voice_configs):
+            self.voice_configs.insert(index, config)
+        else:
+            self.voice_configs.append(config)
+            
+        self.update_table()
+
+    def move_config(self, index: int, direction: int):
+        """移动配置"""
+        new_index = index + direction
+        if 0 <= index < len(self.voice_configs) and 0 <= new_index < len(self.voice_configs):
+            self.voice_configs[index], self.voice_configs[new_index] = self.voice_configs[new_index], self.voice_configs[index]
+            self.update_table()
+            self.table.selectRow(new_index)
+
+    def delete_config(self, index: int):
+        """删除配置"""
+        if 0 <= index < len(self.voice_configs):
+            self.voice_configs.pop(index)
+            self.update_table()
+
     def save_config(self, file_path=None):
         if not file_path:
             file_path, _ = QFileDialog.getSaveFileName(
