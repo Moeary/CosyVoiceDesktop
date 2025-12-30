@@ -2,6 +2,9 @@
 
 面向创作者的多功能桌面端有声小说生产力工具，基于 CosyVoice 系列大模型构建，提供即开即用的文本转语音体验。
 
+*不会用?有问题?*  README文档可能不够`详细` 具体使用教程和每个页面的详情介绍和使用逻辑请参考项目Wiki页面:
+[https://github.com/Moeary/CosyVoiceDesktop/wiki](https://github.com/Moeary/CosyVoiceDesktop/wiki)
+
 ## 更新日志
 
 2025.12.30 发布V1.4版本，API服务与UI交互大升级
