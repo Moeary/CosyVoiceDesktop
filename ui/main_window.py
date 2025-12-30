@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt, QUrl, QTimer, pyqtSignal, QThread
-from PyQt5.QtGui import QIcon
+from PyQt5.QtGui import QIcon, QDesktopServices
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
 from qfluentwidgets import (
@@ -112,38 +112,52 @@ class CosyVoiceProApp(FluentWindow):
         self.addSubInterface(
             self.api_interface, 
             FluentIcon.GLOBE, 
-            "API 服务",
+            "TTS API服务",
             NavigationItemPosition.TOP
         )
         
         # 在侧边栏添加模型加载按钮
         self.navigationInterface.addItem(
             routeKey='load_model',
-            icon=FluentIcon.DOWNLOAD,
+            icon=FluentIcon.PLAY,
             text='加载模型',
             onClick=self.on_load_model_clicked,
             selectable=False,
-            position=NavigationItemPosition.BOTTOM
+            position=NavigationItemPosition.BOTTOM,
+            tooltip='加载模型'
         )
 
         # 在侧边栏添加模型卸载按钮
         self.navigationInterface.addItem(
             routeKey='unload_model',
-            icon=FluentIcon.REMOVE,
+            icon=FluentIcon.CLOSE,
             text='卸载模型',
             onClick=self.on_unload_model_clicked,
             selectable=False,
-            position=NavigationItemPosition.BOTTOM
+            position=NavigationItemPosition.BOTTOM,
+            tooltip='卸载模型'
         )
 
         # 在侧边栏添加主题切换
         self.navigationInterface.addItem(
             routeKey='theme_toggle',
-            icon=FluentIcon.BRUSH,
+            icon=FluentIcon.CONSTRACT,
             text='切换主题',
             onClick=self.toggle_theme,
             selectable=False,
-            position=NavigationItemPosition.BOTTOM
+            position=NavigationItemPosition.BOTTOM,
+            tooltip='切换主题'
+        )
+
+        # 在侧边栏添加 GitHub 链接
+        self.navigationInterface.addItem(
+            routeKey='github_repo',
+            icon=FluentIcon.GITHUB,
+            text='GitHub 仓库',
+            onClick=lambda: QDesktopServices.openUrl(QUrl("https://github.com/Moeary/CosyVoiceDesktop")),
+            selectable=False,
+            position=NavigationItemPosition.BOTTOM,
+            tooltip='访问 GitHub 仓库'
         )
 
         self.addSubInterface(

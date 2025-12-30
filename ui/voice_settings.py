@@ -49,15 +49,18 @@ class VoiceSettingsInterface(QWidget):
         self.table.setHorizontalHeaderLabels(["名称", "模式", "参考文本", "参考音频", "指令文本", "颜色"])
         
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.Stretch)
-        header.setSectionResizeMode(5, QHeaderView.Fixed)
+        # 允许用户调整列宽
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        # 设置最小宽度
+        header.setMinimumSectionSize(60)
+        # 让最后一列填充剩余空间
+        header.setStretchLastSection(True)
         
         self.table.setColumnWidth(0, 120)
         self.table.setColumnWidth(1, 120)
+        self.table.setColumnWidth(2, 200)
+        self.table.setColumnWidth(3, 200)
+        self.table.setColumnWidth(4, 200)
         self.table.setColumnWidth(5, 80)
         
         # 隐藏垂直表头

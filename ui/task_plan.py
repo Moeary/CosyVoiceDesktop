@@ -100,24 +100,22 @@ class TaskPlanInterface(QWidget):
         self.table.itemChanged.connect(self.on_item_changed)
         
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.Fixed)
-        header.setSectionResizeMode(4, QHeaderView.Interactive) # 允许调整
-        header.setSectionResizeMode(5, QHeaderView.Fixed)  # 种子
-        header.setSectionResizeMode(6, QHeaderView.Fixed)  # 运行
-        header.setSectionResizeMode(7, QHeaderView.Interactive)  # 音频
-        header.setSectionResizeMode(8, QHeaderView.Fixed)  # 播放
+        # 允许用户调整列宽
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        # 设置最小宽度
+        header.setMinimumSectionSize(50)
+        # 让最后一列填充剩余空间
+        header.setStretchLastSection(True)
         
-        self.table.setColumnWidth(0, 60)
-        self.table.setColumnWidth(2, 120)
-        self.table.setColumnWidth(3, 120)
-        self.table.setColumnWidth(4, 150)  # 默认宽度减小
-        self.table.setColumnWidth(5, 60)   # 种子列
-        self.table.setColumnWidth(6, 60)   # 运行按钮
-        self.table.setColumnWidth(7, 150)  # 音频选择列减小
-        self.table.setColumnWidth(8, 60)   # 播放按钮列
+        self.table.setColumnWidth(0, 60)   # 段落
+        self.table.setColumnWidth(1, 300)  # 内容 (给宽一点)
+        self.table.setColumnWidth(2, 120)  # 音色
+        self.table.setColumnWidth(3, 120)  # 模式
+        self.table.setColumnWidth(4, 150)  # 指令文本
+        self.table.setColumnWidth(5, 60)   # 种子
+        self.table.setColumnWidth(6, 60)   # 运行
+        self.table.setColumnWidth(7, 150)  # 音频
+        self.table.setColumnWidth(8, 60)   # 播放
         
         # 隐藏默认的垂直表头（行号），因为我们已经有自定义的"段落"列
         self.table.verticalHeader().setVisible(False)

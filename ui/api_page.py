@@ -261,8 +261,14 @@ class APIPageInterface(QWidget):
         
         # 设置列宽
         header = self.character_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        # 允许用户调整列宽
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        # 设置最小宽度
+        header.setMinimumSectionSize(80)
+        # 让最后一列填充剩余空间
+        header.setStretchLastSection(True)
+        # 设置第一列初始宽度
+        self.character_table.setColumnWidth(0, 120)
         
         left_layout.addWidget(self.character_table, 1) # 增加权重，使其占据剩余空间
         
