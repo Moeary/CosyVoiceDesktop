@@ -60,6 +60,7 @@ cosyvoice/*
 pretrained_models/*
 python_env/*
 third_party/*
+Qwen3-TTS/*
 
 .gitignore
 CosyVoiceDesktop_V1.1.7z
