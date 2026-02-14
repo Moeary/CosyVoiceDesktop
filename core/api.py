@@ -69,6 +69,8 @@ api_logger.addHandler(console_handler)
 
 def set_log_callback(callback):
     """设置日志回调"""
+    # 清空之前的回调，防止重启后日志重复输出
+    log_callbacks.clear()
     log_callbacks.append(callback)
 
 # ==================== 配置加载 ====================
@@ -616,6 +618,7 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
     Returns:
         包含WAV数据的BytesIO对象
     """
+    start_time = time.time()
     try:
         if cosyvoice is None:
             api_logger.error("Model not loaded")
@@ -779,7 +782,12 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
         audio_duration = audio_data.shape[1] / sample_rate if audio_data.numel() > 0 else 0
         audio_size_mb = buffer.getbuffer().nbytes / (1024 * 1024)
         
-        api_logger.info(f"✅ 推理成功 | 🎵 音频时长: {audio_duration:.2f} 秒 | 💾 文件大小: {buffer.getbuffer().nbytes} 字节 ({audio_size_mb:.2f} MB)")
+        # 计算推理耗时和RTF
+        end_time = time.time()
+        total_time = end_time - start_time
+        rtf = total_time / audio_duration if audio_duration > 0 else 0
+        
+        api_logger.info(f"✅ 推理成功 | ⏱️ 耗时: {total_time:.2f}s | ⚡ RTF: {rtf:.4f} | 🎵 时长: {audio_duration:.2f}s | 💾 大小: {audio_size_mb:.2f}MB")
         
         return buffer
     

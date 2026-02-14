@@ -5,45 +5,51 @@ import subprocess
 from typing import List, Optional
 
 def load_cosyvoice_model():
-    """加载CosyVoice模型的工具函数
-    
-    返回:
-        CosyVoice 模型对象
-        
-    抛出异常:
-        FileNotFoundError: 模型文件不存在
-        Exception: 模型加载失败
-    """
-    # 从配置中读取模型路径
+    """加载CosyVoice模型的工具函数"""
     from core.config_manager import ConfigManager
+    from core.download import get_model_catalog
     config = ConfigManager()
-    model_dir = config.get("cosyvoice_model_path")
     
-    # 如果配置为空，尝试默认路径
-    if not model_dir or not os.path.exists(model_dir):
-        # 优先尝试CosyVoice3
-        model_dir = 'pretrained_models/Fun-CosyVoice3-0.5B'
-        if not os.path.exists(model_dir):
-            # 尝试另一个可能的目录名
-            model_dir = 'pretrained_models/CosyVoice3-0.5B'
-            
-        if not os.path.exists(model_dir):
-            # 回退到CosyVoice2
-            model_dir = 'pretrained_models/CosyVoice2-0.5B'
-            
+    # 获取原始路径设置
+    raw_cosy_path = config.get("cosyvoice_model_path") or "./pretrained_models"
+    raw_wetext_path = config.get("wetext_model_path") or "./pretrained_models"
+    
+    # 使用 catalog 逻辑解析出真实的模型存放路径 (会自动补全子文件夹)
+    catalog = get_model_catalog(os.path.abspath("./pretrained_models"), {
+        "cosyvoice3": raw_cosy_path,
+        "wetext": raw_wetext_path
+    })
+    
+    model_dir = catalog["cosyvoice3"][3]
+    wetext_dir = catalog["wetext"][3]
+    
+    # 冗余检查：如果补全后的路径不存在，尝试原始路径（万一用户故意放到了一个非标准命名的文件夹）
+    if not os.path.exists(os.path.join(model_dir, "cosyvoice3.yaml")):
+        if os.path.exists(os.path.join(os.path.abspath(raw_cosy_path), "cosyvoice3.yaml")):
+            model_dir = os.path.abspath(raw_cosy_path)
+
     if not os.path.exists(model_dir):
-        raise FileNotFoundError(f"模型目录不存在: {model_dir}")
+        raise FileNotFoundError(f"未能找到模型目录: {model_dir}")
     
-    sys.path.insert(0, 'third_party/Matcha-TTS')
+    # 确保第三方库路径正确
+    root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    matcha_path = os.path.join(root_path, 'third_party', 'Matcha-TTS')
+    
+    if matcha_path not in sys.path:
+        sys.path.insert(0, matcha_path)
+    if root_path not in sys.path:
+        sys.path.insert(0, root_path)
+        
     from cosyvoice.cli.cosyvoice import AutoModel
     
-    # AutoModel会自动根据yaml选择正确的模型类
-    # 注意：CosyVoice3不支持load_jit参数
+    print(f"正在从以下路径加载模型:\n - CosyVoice: {model_dir}\n - WeText: {wetext_dir}")
+    
     return AutoModel(
         model_dir=model_dir, 
         load_trt=False, 
         load_vllm=False, 
-        fp16=False
+        fp16=False,
+        wetext_dir=wetext_dir
     )
 
 def unload_cosyvoice_model(model):

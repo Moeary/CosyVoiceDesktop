@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 title CosyVoice Desktop Pro
 
 echo ====================================
-echo    CosyVoice Desktop v1.3
+echo    CosyVoice Desktop v1.5
 echo ====================================
 echo.
 
