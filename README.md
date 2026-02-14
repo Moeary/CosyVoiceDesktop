@@ -19,7 +19,7 @@
 
 2025.12.16 发布V1.3版本，升级至CosyVoice3,便携包提供两种模式,github里面的压缩包不再打包预训练模型(节省一下体积),百度网盘里面的带预训练模型,以后考虑将所有的发布版本都迁移到github里面去,就再也不用受百度网盘的压迫了
 - 🚀 **升级到CosyVoice3-0.5b**：全新的语音生成模型，语音质量与情感表达能力大幅提升
-- 📥 **灵活的模型下载**：提供 `download_all_models.bat` 脚本，支持 HuggingFace 和 ModelScope 两种下载渠道
+- 📥 **灵活的模型下载**：内置「模型下载」页面，支持 HuggingFace 和 ModelScope 两种下载渠道，并显示下载进度
 - 🎵 **新增语音修补模式**：支持四种模式 - 零样本复制、精细控制、指令控制、[语音修补(hotfix)](https://github.com/FunAudioLLM/CosyVoice/blob/main/example.py)
 
 2025.12.14 发布V1.2版本，torch环境更新到torch2.7.0+cu128 理应**支持50系显卡**了
@@ -84,13 +84,14 @@ V1.4 新增标准 HTTP API 支持，可将 CosyVoice 能力集成到其他应用
 从 v1.3 开始，程序不再提供打包的模型文件。请根据以下步骤下载所需模型：
 
 ### 快速下载（推荐）
-1. 双击运行 `download_all_models.bat`
+1. 启动程序后，打开侧边栏 **模型下载** 页面
 2. 选择下载渠道：
    - **1. HuggingFace** - 推荐，如有网络问题可选择 2
    - **2. ModelScope** - 国内用户推荐，如 HuggingFace 下载困难
-3. 脚本将自动下载以下模型到 `pretrained_models/` 目录：
+3. 点击 **一键下载默认模型**，程序将自动下载以下模型到 `pretrained_models/` 目录：
    - `wetext/` - 文本标准化模型
    - `Fun-CosyVoice3-0.5B/` - CosyVoice3 推理模型
+4. 下载过程中可在页面内查看日志与进度条，下载完成后模型路径会自动更新
 
 ### 手动下载（进阶）
 如需更细化控制，可在命令行运行：
@@ -126,7 +127,7 @@ python core/download.py --help
    - **百度网盘完整版**：包含预训练模型，开箱即用，体积较大
 2. 在本地磁盘解压，例如 `D:\CosyVoiceDesktop`。
 3. 检查显卡驱动与 CUDA Runtime 是否满足 12.8 及以上要求。
-4. **先双击运行** `download_all_models.bat` 下载模型（如果是完整版可跳过此步）。
+4. **首次启动后进入程序内的「模型下载」页面**下载模型（如果是完整版可跳过此步）。
 5. **再双击运行** `StartCosyVoice.bat` 启动程序。
 6. 进入主界面参考教程使用即可。
 

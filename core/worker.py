@@ -38,6 +38,46 @@ class ModelUnloaderThread(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+
+class ModelDownloadThread(QThread):
+    """后台模型下载线程"""
+    progress = pyqtSignal(int, str)  # 百分比, 状态文本
+    log = pyqtSignal(str)
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, download_method='modelscope', token=None, download_keys=None,
+                 models_dir=None, model_paths=None):
+        super().__init__()
+        self.download_method = download_method
+        self.token = token
+        self.download_keys = download_keys or ['wetext', 'cosyvoice3']
+        self.models_dir = models_dir
+        self.model_paths = model_paths or {}
+
+    def run(self):
+        try:
+            from .download import download_models
+
+            result = download_models(
+                download_method=self.download_method,
+                token=self.token,
+                download_keys=self.download_keys,
+                pretrained_models_dir=self.models_dir,
+                model_paths=self.model_paths,
+                progress_callback=self.on_progress,
+                log_callback=self.on_log,
+            )
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def on_progress(self, value, status):
+        self.progress.emit(value, status)
+
+    def on_log(self, message):
+        self.log.emit(message)
+
 class AudioGenerationWorker(QThread):
     """音频生成工作线程"""
     progress = pyqtSignal(str)  # 日志消息

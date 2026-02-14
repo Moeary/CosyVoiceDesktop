@@ -66,17 +66,10 @@ class SettingsInterface(QWidget):
         )
         layout.addLayout(self.output_path_layout)
         
-        # CosyVoice 模型路径
-        self.cosyvoice_path_layout, self.cosyvoice_path_edit = self.create_path_setting(
-            "CosyVoice 模型路径", "cosyvoice_model_path"
-        )
-        layout.addLayout(self.cosyvoice_path_layout)
-        
-        # WeText 模型路径
-        self.wetext_path_layout, self.wetext_path_edit = self.create_path_setting(
-            "WeText 模型路径", "wetext_model_path"
-        )
-        layout.addLayout(self.wetext_path_layout)
+        # 提示：模型相关设置入口
+        model_tip = BodyLabel("模型下载与模型路径设置已迁移到「模型下载」页面。")
+        model_tip.setStyleSheet("color: gray; font-size: 12px;")
+        layout.addWidget(model_tip)
 
         layout.addStretch()
 
@@ -122,8 +115,6 @@ class SettingsInterface(QWidget):
         self.min_text_spin.setValue(min_text_length)
 
         self.output_path_edit.setText(self.config_manager.get("output_dir", "./output"))
-        self.cosyvoice_path_edit.setText(self.config_manager.get("cosyvoice_model_path", ""))
-        self.wetext_path_edit.setText(self.config_manager.get("wetext_model_path", ""))
 
     def on_auto_load_changed(self, checked):
         self.config_manager.set("auto_load_model", checked)

@@ -22,6 +22,7 @@ from core.config_manager import ConfigManager
 from .text_edit import TextEditInterface
 from .task_plan import TaskPlanInterface
 from .voice_settings import VoiceSettingsInterface
+from .model_download import ModelDownloadInterface
 from .settings import SettingsInterface
 from .api_page import APIPageInterface
 
@@ -81,10 +82,14 @@ class CosyVoiceProApp(FluentWindow):
         self.voice_interface.setObjectName("VoiceSettingsInterface")
         
         # 界面4: 设置
+        self.model_download_interface = ModelDownloadInterface(self.config_manager)
+        self.model_download_interface.setObjectName("ModelDownloadInterface")
+
+        # 界面5: 设置
         self.settings_interface = SettingsInterface(self.config_manager)
         self.settings_interface.setObjectName("SettingsInterface")
         
-        # 界面5: API 服务
+        # 界面6: API 服务
         self.api_interface = APIPageInterface(self)
         self.api_interface.setObjectName("APIPageInterface")
         
@@ -106,6 +111,13 @@ class CosyVoiceProApp(FluentWindow):
             self.voice_interface, 
             FluentIcon.MICROPHONE, 
             "语音设置",
+            NavigationItemPosition.TOP
+        )
+
+        self.addSubInterface(
+            self.model_download_interface,
+            FluentIcon.DOWN,
+            "模型下载",
             NavigationItemPosition.TOP
         )
         

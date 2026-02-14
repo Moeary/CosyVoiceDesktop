@@ -432,6 +432,16 @@ class APIPageInterface(QWidget):
         """实际启动服务的流程"""
         port = self.port_spin.value()
         
+        # 清理旧线程连接
+        if self.server_thread:
+            try:
+                self.server_thread.log_signal.disconnect()
+                self.server_thread.started_signal.disconnect()
+                self.server_thread.stopped_signal.disconnect()
+                self.server_thread.error_signal.disconnect()
+            except:
+                pass
+
         # 创建运行时配置适配器
         runtime_config = RuntimeCharacterConfig(self.main_window.voice_interface)
         
