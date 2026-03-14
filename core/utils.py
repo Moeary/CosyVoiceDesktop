@@ -4,53 +4,112 @@ import gc
 import subprocess
 from typing import List, Optional
 
+
+def _resolve_backend(config) -> str:
+    env_backend = (os.environ.get("COSYVOICE_BACKEND", "") or "").strip().lower()
+    cfg_backend = (config.get("inference_backend", "pytorch") or "pytorch").strip().lower()
+    backend = env_backend or cfg_backend
+    if backend in {"onnx", "onnxruntime", "ort"}:
+        return "onnx"
+    return "pytorch"
+
+
+def _resolve_onnx_model_dir(cosy_model_dir: str, onnx_candidate_dir: str) -> str:
+    def has_onnx_script(base_dir: str) -> bool:
+        return os.path.exists(os.path.join(base_dir, "onnx", "scripts", "onnx_inference_pure.py"))
+
+    if has_onnx_script(cosy_model_dir):
+        return cosy_model_dir
+
+    onnx_candidate_dir = os.path.abspath(onnx_candidate_dir)
+    if has_onnx_script(onnx_candidate_dir):
+        return onnx_candidate_dir
+
+    script_in_candidate = os.path.join(onnx_candidate_dir, "scripts", "onnx_inference_pure.py")
+    if os.path.exists(script_in_candidate) and os.path.basename(onnx_candidate_dir).lower() == "onnx":
+        parent_dir = os.path.abspath(os.path.dirname(onnx_candidate_dir))
+        if has_onnx_script(parent_dir):
+            return parent_dir
+        return parent_dir
+
+    raise FileNotFoundError(
+        "未找到 ONNX 推理目录。\n"
+        "期望目录结构之一：\n"
+        f"1) {cosy_model_dir}\\onnx\\scripts\\onnx_inference_pure.py\n"
+        f"2) {onnx_candidate_dir}\\scripts\\onnx_inference_pure.py (且目录名为 onnx)\n"
+    )
+
+
 def load_cosyvoice_model():
     """加载CosyVoice模型的工具函数"""
     from core.config_manager import ConfigManager
     from core.download import get_model_catalog
     config = ConfigManager()
-    
+
+    backend = _resolve_backend(config)
+
     # 获取原始路径设置
     raw_cosy_path = config.get("cosyvoice_model_path") or "./pretrained_models"
     raw_wetext_path = config.get("wetext_model_path") or "./pretrained_models"
-    
+    raw_onnx_path = config.get("onnx_model_path") or os.path.join(raw_cosy_path, "onnx")
+
     # 使用 catalog 逻辑解析出真实的模型存放路径 (会自动补全子文件夹)
     catalog = get_model_catalog(os.path.abspath("./pretrained_models"), {
         "cosyvoice3": raw_cosy_path,
-        "wetext": raw_wetext_path
+        "wetext": raw_wetext_path,
+        "cosyvoice3_onnx": raw_onnx_path,
     })
-    
+
     model_dir = catalog["cosyvoice3"][3]
     wetext_dir = catalog["wetext"][3]
-    
+    onnx_dir = catalog["cosyvoice3_onnx"][3]
+
     # 冗余检查：如果补全后的路径不存在，尝试原始路径（万一用户故意放到了一个非标准命名的文件夹）
     if not os.path.exists(os.path.join(model_dir, "cosyvoice3.yaml")):
         if os.path.exists(os.path.join(os.path.abspath(raw_cosy_path), "cosyvoice3.yaml")):
             model_dir = os.path.abspath(raw_cosy_path)
 
+    if backend == "onnx":
+        onnx_model_dir = _resolve_onnx_model_dir(model_dir, onnx_dir)
+        use_fp16 = not bool(config.get("onnx_use_fp32", False))
+        print(
+            "正在从以下路径加载 ONNX 模型:\n"
+            f" - CosyVoice: {onnx_model_dir}\n"
+            f" - ONNX: {os.path.join(onnx_model_dir, 'onnx')}\n"
+            f" - 精度: {'FP16' if use_fp16 else 'FP32'}"
+        )
+
+        from core.onnx_runtime_backend import OnnxRuntimeCosyVoice
+
+        model = OnnxRuntimeCosyVoice(model_dir=onnx_model_dir, use_fp16=use_fp16)
+        setattr(model, "backend", "onnx")
+        return model
+
     if not os.path.exists(model_dir):
         raise FileNotFoundError(f"未能找到模型目录: {model_dir}")
-    
+
     # 确保第三方库路径正确
     root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     matcha_path = os.path.join(root_path, 'third_party', 'Matcha-TTS')
-    
+
     if matcha_path not in sys.path:
         sys.path.insert(0, matcha_path)
     if root_path not in sys.path:
         sys.path.insert(0, root_path)
-        
+
     from cosyvoice.cli.cosyvoice import AutoModel
-    
+
     print(f"正在从以下路径加载模型:\n - CosyVoice: {model_dir}\n - WeText: {wetext_dir}")
-    
-    return AutoModel(
-        model_dir=model_dir, 
-        load_trt=False, 
-        load_vllm=False, 
+
+    model = AutoModel(
+        model_dir=model_dir,
+        load_trt=False,
+        load_vllm=False,
         fp16=False,
         wetext_dir=wetext_dir
     )
+    setattr(model, "backend", "pytorch")
+    return model
 
 def unload_cosyvoice_model(model):
     """卸载CosyVoice模型并彻底释放显存
@@ -62,6 +121,13 @@ def unload_cosyvoice_model(model):
         return
     
     try:
+        # ONNX 后端可选资源清理
+        if hasattr(model, "close") and callable(model.close):
+            try:
+                model.close()
+            except Exception:
+                pass
+
         # 清理内部缓存字典
         if hasattr(model, 'model'):
             model_obj = model.model

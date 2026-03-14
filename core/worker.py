@@ -1,12 +1,16 @@
-import sys
 import os
-import torch
 import random
-import torchaudio
-from typing import List, Optional
+from typing import List
+import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from .models import TaskSegment
+from .audio_utils import save_wav_file
+
+try:
+    import torch  # type: ignore
+except Exception:
+    torch = None
 
 class ModelLoaderThread(QThread):
     """后台模型加载线程"""
@@ -104,10 +108,7 @@ class AudioGenerationWorker(QThread):
                 self.progress.emit("📦 正在加载CosyVoice模型...")
                 self.cosyvoice = self.load_model()
                 self.progress.emit("✅ 模型加载成功")
-            
-            # 导入必要的模块
-            from cosyvoice.utils.file_utils import load_wav
-            
+
             # 创建输出目录
             # 修改：输出目录包含项目名
             project_output_dir = os.path.join(self.output_dir, self.project_name)
@@ -121,11 +122,13 @@ class AudioGenerationWorker(QThread):
                     break
                 
                 # 设置随机种子
-                torch.manual_seed(segment.seed)
                 random.seed(segment.seed)
-                if torch.cuda.is_available():
-                    torch.cuda.manual_seed(segment.seed)
-                    torch.cuda.manual_seed_all(segment.seed)
+                np.random.seed(segment.seed % (2 ** 32))
+                if torch is not None:
+                    torch.manual_seed(segment.seed)
+                    if torch.cuda.is_available():
+                        torch.cuda.manual_seed(segment.seed)
+                        torch.cuda.manual_seed_all(segment.seed)
                 
                 self.progress.emit(f"🎵 正在生成第 {segment.index} 段...")
                 self.progress.emit(f"   文本: {segment.text}")
@@ -155,7 +158,7 @@ class AudioGenerationWorker(QThread):
                     filepath = os.path.join(project_output_dir, filename)
                     
                     # 保存音频
-                    torchaudio.save(filepath, result['tts_speech'], self.cosyvoice.sample_rate)
+                    save_wav_file(filepath, result['tts_speech'], int(self.cosyvoice.sample_rate))
                     segment_files.append(filepath)
                     all_generated_files.append(filepath)
                     
@@ -204,10 +207,19 @@ class AudioGenerationWorker(QThread):
                 # CosyVoice3精细控制需要在文本前加指令
                 if is_v3 and '<|endofprompt|>' not in text:
                     text = f'You are a helpful assistant.<|endofprompt|>{text}'
-                
-                return self.cosyvoice.inference_cross_lingual(
-                    text, prompt_audio, stream=False
-                )
+
+                prompt_text = seg.voice_config.prompt_text or seg.text
+                kwargs = {"stream": False}
+                kwargs["prompt_text"] = prompt_text
+
+                try:
+                    return self.cosyvoice.inference_cross_lingual(
+                        text, prompt_audio, **kwargs
+                    )
+                except TypeError:
+                    return self.cosyvoice.inference_cross_lingual(
+                        text, prompt_audio, stream=False
+                    )
             return inference
         
         elif segment.mode == '指令控制':

@@ -52,11 +52,13 @@ class ModelDownloadInterface(QWidget):
 
         self.wetext_status_label = BodyLabel("WeText：⬜ 未下载")
         self.cosy_status_label = BodyLabel("CosyVoice3：⬜ 未下载")
+        self.onnx_status_label = BodyLabel("CosyVoice3 ONNX：⬜ 未下载")
         refresh_status_btn = PushButton("刷新状态")
         refresh_status_btn.clicked.connect(self.refresh_download_status)
 
         status_layout.addWidget(self.wetext_status_label)
         status_layout.addWidget(self.cosy_status_label)
+        status_layout.addWidget(self.onnx_status_label)
         status_layout.addStretch()
         status_layout.addWidget(refresh_status_btn)
         layout.addWidget(status_card)
@@ -93,6 +95,18 @@ class ModelDownloadInterface(QWidget):
         cosy_row.addWidget(cosy_browse)
         path_card_layout.addLayout(cosy_row)
 
+        onnx_row = QHBoxLayout()
+        onnx_label = BodyLabel("CosyVoice3 ONNX 路径")
+        self.onnx_path_edit = LineEdit()
+        self.onnx_path_edit.setPlaceholderText("例如：D:/Models/Fun-CosyVoice3-0.5B/onnx")
+        self.onnx_path_edit.textChanged.connect(self.on_onnx_path_changed)
+        onnx_browse = PushButton("浏览")
+        onnx_browse.clicked.connect(self.on_browse_onnx_path)
+        onnx_row.addWidget(onnx_label)
+        onnx_row.addWidget(self.onnx_path_edit, 1)
+        onnx_row.addWidget(onnx_browse)
+        path_card_layout.addLayout(onnx_row)
+
         path_tip = CaptionLabel("提示：路径可不同盘符；程序会按各自路径判断是否已下载。")
         path_tip.setStyleSheet("color: gray;")
         path_card_layout.addWidget(path_tip)
@@ -120,9 +134,12 @@ class ModelDownloadInterface(QWidget):
         self.download_wetext_btn.clicked.connect(self.download_wetext)
         self.download_cosy_btn = PushButton("仅下载 CosyVoice3")
         self.download_cosy_btn.clicked.connect(self.download_cosyvoice)
+        self.download_onnx_btn = PushButton("仅下载 CosyVoice3 ONNX")
+        self.download_onnx_btn.clicked.connect(self.download_cosyvoice_onnx)
         button_layout.addWidget(self.download_all_btn)
         button_layout.addWidget(self.download_wetext_btn)
         button_layout.addWidget(self.download_cosy_btn)
+        button_layout.addWidget(self.download_onnx_btn)
         layout.addLayout(button_layout)
 
         self.progress_bar = QProgressBar()
@@ -150,12 +167,15 @@ class ModelDownloadInterface(QWidget):
     def load_config(self):
         default_wetext = "./pretrained_models/wetext"
         default_cosy = "./pretrained_models/Fun-CosyVoice3-0.5B"
+        default_onnx = "./pretrained_models/Fun-CosyVoice3-0.5B/onnx"
 
         wetext_path = self.config_manager.get("wetext_model_path", default_wetext)
         cosy_path = self.config_manager.get("cosyvoice_model_path", default_cosy)
+        onnx_path = self.config_manager.get("onnx_model_path", default_onnx)
 
         self.wetext_path_edit.setText(wetext_path)
         self.cosy_path_edit.setText(cosy_path)
+        self.onnx_path_edit.setText(onnx_path)
         self.refresh_download_status()
 
     def on_wetext_path_changed(self, path: str):
@@ -172,6 +192,12 @@ class ModelDownloadInterface(QWidget):
         self.config_manager.set("cosyvoice_model_path", path)
         self.refresh_download_status()
 
+    def on_onnx_path_changed(self, path: str):
+        if not path:
+            return
+        self.config_manager.set("onnx_model_path", path)
+        self.refresh_download_status()
+
     def on_browse_wetext_path(self):
         current = self.wetext_path_edit.text().strip() or "./pretrained_models"
         selected = QFileDialog.getExistingDirectory(self, "选择模型目录", os.path.abspath(current))
@@ -184,6 +210,12 @@ class ModelDownloadInterface(QWidget):
         if selected:
             self.cosy_path_edit.setText(selected)
 
+    def on_browse_onnx_path(self):
+        current = self.onnx_path_edit.text().strip() or "./pretrained_models"
+        selected = QFileDialog.getExistingDirectory(self, "选择模型目录", os.path.abspath(current))
+        if selected:
+            self.onnx_path_edit.setText(selected)
+
     def get_model_paths(self):
         # 统一使用 core.download 中的逻辑来解析最终路径
         from core.download import get_model_catalog
@@ -191,21 +223,25 @@ class ModelDownloadInterface(QWidget):
         # 使用当前编辑框中的内容作为基础路径
         wetext_raw = self.wetext_path_edit.text().strip() or "./pretrained_models"
         cosy_raw = self.cosy_path_edit.text().strip() or "./pretrained_models"
+        onnx_raw = self.onnx_path_edit.text().strip() or "./pretrained_models/Fun-CosyVoice3-0.5B/onnx"
         
         catalog = get_model_catalog("./pretrained_models", {
             "wetext": wetext_raw,
-            "cosyvoice3": cosy_raw
+            "cosyvoice3": cosy_raw,
+            "cosyvoice3_onnx": onnx_raw,
         })
         
         return {
             "wetext": catalog["wetext"][3],
             "cosyvoice3": catalog["cosyvoice3"][3],
+            "cosyvoice3_onnx": catalog["cosyvoice3_onnx"][3],
         }
 
     def refresh_download_status(self):
         model_paths = self.get_model_paths()
         wetext_ok = is_model_downloaded(model_paths["wetext"])
         cosy_ok = is_model_downloaded(model_paths["cosyvoice3"])
+        onnx_ok = is_model_downloaded(model_paths["cosyvoice3_onnx"])
 
         if wetext_ok:
             self.wetext_status_label.setText("WeText：✅ 已下载")
@@ -221,8 +257,16 @@ class ModelDownloadInterface(QWidget):
             self.cosy_status_label.setText("CosyVoice3：⬜ 未下载")
             self.cosy_status_label.setStyleSheet("color: #95a5a6;")
 
+        if onnx_ok:
+            self.onnx_status_label.setText("CosyVoice3 ONNX：✅ 已下载")
+            self.onnx_status_label.setStyleSheet("color: #2ecc71; font-weight: bold;")
+        else:
+            self.onnx_status_label.setText("CosyVoice3 ONNX：⬜ 未下载")
+            self.onnx_status_label.setStyleSheet("color: #95a5a6;")
+
         self.config_manager.set("wetext_model_path", model_paths["wetext"])
         self.config_manager.set("cosyvoice_model_path", model_paths["cosyvoice3"])
+        self.config_manager.set("onnx_model_path", model_paths["cosyvoice3_onnx"])
 
     def get_download_method(self):
         return "huggingface" if self.channel_combo.currentIndex() == 1 else "modelscope"
@@ -240,6 +284,9 @@ class ModelDownloadInterface(QWidget):
     def download_cosyvoice(self):
         self.start_download(['cosyvoice3'])
 
+    def download_cosyvoice_onnx(self):
+        self.start_download(['cosyvoice3_onnx'])
+
     def start_download(self, download_keys):
         if self.download_thread and self.download_thread.isRunning():
             self.show_warning("已有下载任务正在进行，请稍候。")
@@ -252,7 +299,12 @@ class ModelDownloadInterface(QWidget):
         skipped_keys = [key for key in download_keys if key not in pending_keys]
 
         if skipped_keys:
-            skipped_text = "、".join(["WeText" if key == "wetext" else "CosyVoice3" for key in skipped_keys])
+            name_map = {
+                "wetext": "WeText",
+                "cosyvoice3": "CosyVoice3",
+                "cosyvoice3_onnx": "CosyVoice3 ONNX",
+            }
+            skipped_text = "、".join([name_map.get(key, key) for key in skipped_keys])
             self.append_log(f"[{self.now()}] ⏭️ 已下载，跳过: {skipped_text}")
 
         if not pending_keys:
@@ -294,6 +346,7 @@ class ModelDownloadInterface(QWidget):
         resolved_paths = result.get("resolved_paths", {})
         cosyvoice_path = resolved_paths.get("cosyvoice_model_path")
         wetext_path = resolved_paths.get("wetext_model_path")
+        onnx_path = resolved_paths.get("onnx_model_path")
 
         # 更新配置和界面上的路径输入框
         if cosyvoice_path:
@@ -302,6 +355,9 @@ class ModelDownloadInterface(QWidget):
         if wetext_path:
             self.config_manager.set("wetext_model_path", wetext_path)
             self.wetext_path_edit.setText(wetext_path)
+        if onnx_path:
+            self.config_manager.set("onnx_model_path", onnx_path)
+            self.onnx_path_edit.setText(onnx_path)
 
         if result.get("all_success"):
             self.show_success("模型下载完成，路径已自动更新为模型实际存放位置。")
@@ -321,6 +377,7 @@ class ModelDownloadInterface(QWidget):
         self.download_all_btn.setEnabled(enabled)
         self.download_wetext_btn.setEnabled(enabled)
         self.download_cosy_btn.setEnabled(enabled)
+        self.download_onnx_btn.setEnabled(enabled)
 
     def append_log(self, text: str):
         self.log_view.append(text)

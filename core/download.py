@@ -61,6 +61,9 @@ def get_model_catalog(pretrained_models_dir: str,
 
     wetext_base = model_paths.get("wetext") or pretrained_models_dir
     cosy_base = model_paths.get("cosyvoice3") or pretrained_models_dir
+    onnx_base = model_paths.get("cosyvoice3_onnx") or os.path.join(
+        get_final_path(cosy_base, "Fun-CosyVoice3-0.5B"), "onnx"
+    )
     
     return {
         "wetext": (
@@ -74,6 +77,12 @@ def get_model_catalog(pretrained_models_dir: str,
             "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
             "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
             get_final_path(cosy_base, "Fun-CosyVoice3-0.5B"),
+        ),
+        "cosyvoice3_onnx": (
+            "cosy-voice3-onnx",
+            "ayousanz/cosy-voice3-onnx",
+            "",
+            get_final_path(onnx_base, "onnx"),
         ),
     }
 
@@ -198,15 +207,21 @@ def download_model(model_info: Tuple[str, str, str, str], download_method: str,
 
     success = False
     if download_method == "huggingface":
-        success = download_huggingface(hf_id, local_dir, token, log_callback, flatten=flatten)
-        if not success:
+        if hf_id:
+            success = download_huggingface(hf_id, local_dir, token, log_callback, flatten=flatten)
+        if not success and ms_id:
             _emit_log("尝试从 ModelScope 下载...", log_callback)
             success = download_modelscope(ms_id, local_dir, log_callback, flatten=flatten)
     else:
-        success = download_modelscope(ms_id, local_dir, log_callback, flatten=flatten)
-        if not success:
+        if ms_id:
+            success = download_modelscope(ms_id, local_dir, log_callback, flatten=flatten)
+        else:
+            _emit_log("ModelScope 未提供该模型，跳过 ModelScope 下载。", log_callback)
+        if not success and hf_id:
             _emit_log("尝试从 HuggingFace 下载...", log_callback)
             success = download_huggingface(hf_id, local_dir, token, log_callback, flatten=flatten)
+    if not hf_id and not ms_id:
+        _emit_log("❌ 未配置可用下载源。", log_callback)
 
     if success:
         _emit_progress(end_progress, f"{name} 下载完成", progress_callback)
@@ -281,10 +296,12 @@ def download_models(download_method: str = "modelscope", token: Optional[str] = 
         "resolved_paths": {
             "cosyvoice_model_path": model_catalog["cosyvoice3"][3],
             "wetext_model_path": model_catalog["wetext"][3],
+            "onnx_model_path": model_catalog["cosyvoice3_onnx"][3],
         },
         "download_status": {
             "cosyvoice3": is_model_downloaded(model_catalog["cosyvoice3"][3]),
             "wetext": is_model_downloaded(model_catalog["wetext"][3]),
+            "cosyvoice3_onnx": is_model_downloaded(model_catalog["cosyvoice3_onnx"][3]),
         }
     }
 
@@ -296,6 +313,7 @@ def main():
     parser.add_argument("--all", action="store_true", help="Download all models")
     parser.add_argument("--wetext", action="store_true", help="Download wetext only")
     parser.add_argument("--cosyvoice3", action="store_true", help="Download CosyVoice3 only")
+    parser.add_argument("--cosyvoice3-onnx", action="store_true", help="Download cosy-voice3-onnx only")
     parser.add_argument("--models-dir", help="Custom pretrained_models directory")
 
     args = parser.parse_args()
@@ -307,13 +325,15 @@ def main():
         download_method, token = get_download_method()
 
     download_keys: List[str] = []
-    if args.all or (not args.wetext and not args.cosyvoice3):
+    if args.all or (not args.wetext and not args.cosyvoice3 and not args.cosyvoice3_onnx):
         download_keys = ["wetext", "cosyvoice3"]
     else:
         if args.wetext:
             download_keys.append("wetext")
         if args.cosyvoice3:
             download_keys.append("cosyvoice3")
+        if args.cosyvoice3_onnx:
+            download_keys.append("cosyvoice3_onnx")
 
     download_models(
         download_method=download_method,

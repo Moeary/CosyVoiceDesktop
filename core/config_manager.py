@@ -13,7 +13,10 @@ class ConfigManager:
             "project_name": "project",
             "output_dir": "./output",
             "cosyvoice_model_path": "./pretrained_models",
-            "wetext_model_path": "./pretrained_models"
+            "wetext_model_path": "./pretrained_models",
+            "onnx_model_path": "./pretrained_models/Fun-CosyVoice3-0.5B/onnx",
+            "inference_backend": "pytorch",
+            "onnx_use_fp32": True,
         }
         self.load_config()
 

@@ -8,6 +8,8 @@ version = "1.4.0"
 [tasks]
 start = "python main.py"
 api = "python core/api.py --config config/小说.json --port 9880 --min_text_length 0"
+start-onnx = { cmd = "python main.py", env = { COSYVOICE_BACKEND = "onnx" } }
+api-onnx = { cmd = "python core/api.py --config config/小说.json --port 9880 --min_text_length 0", env = { COSYVOICE_BACKEND = "onnx" } }
 
 [dependencies]
 python = "3.12.*"
@@ -51,3 +53,33 @@ grpcio-tools = ">=1.62.3, <2"
 pyqt-fluent-widgets = ">=1.10.2, <2"
 pyqt5 = ">=5.15.11, <6"
 x_transformers = ">=1.0.0"
+
+[feature.onnx-gpu.dependencies]
+python = "3.12.*"
+ffmpeg = "*"
+modelscope = ">=1.33.0,<2"
+flask = ">=3.1.2,<4"
+flask_cors = ">=4.0.0,<5"
+
+[feature.onnx-gpu.pypi-dependencies]
+onnxruntime-gpu = { version = "==1.20.1", extras = ["cuda", "cudnn"] }
+onnx = "==1.17.0"
+numpy = "==1.26.4"
+scipy = "==1.15.3"
+soundfile = "==0.13.1"
+librosa = "==0.11.0"
+transformers = "==4.52.4"
+huggingface-hub = ">=0.25.0"
+protobuf = ">=4.25,<5"
+requests = ">=2.32.3,<3"
+pyqt-fluent-widgets = ">=1.10.2,<2"
+pyqt5 = ">=5.15.11,<6"
+rich = ">=13.7.1,<14"
+
+[feature.onnx-gpu.tasks]
+start = { cmd = "python main.py", env = { COSYVOICE_BACKEND = "onnx" } }
+api = { cmd = "python core/api.py --config config/小说.json --port 9880 --min_text_length 0", env = { COSYVOICE_BACKEND = "onnx" } }
+
+[environments]
+default = { solve-group = "default" }
+onnx-gpu = { features = ["onnx-gpu"], solve-group = "onnx-gpu", no-default-feature = true }

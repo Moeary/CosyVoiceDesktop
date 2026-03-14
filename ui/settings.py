@@ -38,6 +38,35 @@ class SettingsInterface(QWidget):
         model_tip = BodyLabel("启用后，应用启动时会自动加载 CosyVoice 模型（需要等待加载完成）")
         model_tip.setStyleSheet("color: gray; font-size: 12px;")
         layout.addWidget(model_tip)
+
+        # 推理后端设置
+        backend_layout = QHBoxLayout()
+        backend_label = BodyLabel("推理后端")
+        self.backend_combo = ComboBox()
+        self.backend_combo.addItems(["PyTorch + CUDA", "ONNX Runtime GPU"])
+        self.backend_combo.currentTextChanged.connect(self.on_backend_changed)
+        backend_layout.addWidget(backend_label)
+        backend_layout.addStretch()
+        backend_layout.addWidget(self.backend_combo)
+        layout.addLayout(backend_layout)
+
+        backend_tip = BodyLabel("切换后端后需重新加载模型；ONNX 后端需先下载 cosy-voice3-onnx。")
+        backend_tip.setStyleSheet("color: gray; font-size: 12px;")
+        layout.addWidget(backend_tip)
+
+        # ONNX 精度设置
+        onnx_precision_layout = QHBoxLayout()
+        onnx_precision_label = BodyLabel("ONNX 使用 FP32")
+        self.onnx_fp32_switch = SwitchButton()
+        self.onnx_fp32_switch.checkedChanged.connect(self.on_onnx_fp32_changed)
+        onnx_precision_layout.addWidget(onnx_precision_label)
+        onnx_precision_layout.addStretch()
+        onnx_precision_layout.addWidget(self.onnx_fp32_switch)
+        layout.addLayout(onnx_precision_layout)
+
+        onnx_precision_tip = BodyLabel("关闭为 FP16（更快），开启为 FP32（更稳）。")
+        onnx_precision_tip.setStyleSheet("color: gray; font-size: 12px;")
+        layout.addWidget(onnx_precision_tip)
         
         # 最小文本长度设置
         min_text_layout = QHBoxLayout()
@@ -110,6 +139,12 @@ class SettingsInterface(QWidget):
     def load_settings(self):
         auto_load = self.config_manager.get("auto_load_model", False)
         self.auto_load_switch.setChecked(auto_load)
+
+        backend = self.config_manager.get("inference_backend", "pytorch")
+        self.backend_combo.setCurrentIndex(1 if backend == "onnx" else 0)
+
+        onnx_use_fp32 = self.config_manager.get("onnx_use_fp32", False)
+        self.onnx_fp32_switch.setChecked(bool(onnx_use_fp32))
         
         min_text_length = self.config_manager.get("min_text_length", 5)
         self.min_text_spin.setValue(min_text_length)
@@ -118,6 +153,13 @@ class SettingsInterface(QWidget):
 
     def on_auto_load_changed(self, checked):
         self.config_manager.set("auto_load_model", checked)
+
+    def on_backend_changed(self, text):
+        backend = "onnx" if "ONNX" in text else "pytorch"
+        self.config_manager.set("inference_backend", backend)
+
+    def on_onnx_fp32_changed(self, checked):
+        self.config_manager.set("onnx_use_fp32", bool(checked))
     
     def on_min_text_changed(self, value):
         self.config_manager.set("min_text_length", value)

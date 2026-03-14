@@ -114,7 +114,44 @@ python core/download.py --help
 - `--all` 下载全部模型（默认）
 - `--wetext` 仅下载 wetext
 - `--cosyvoice3` 仅下载 CosyVoice3
+- `--cosyvoice3-onnx` 仅下载 CosyVoice3 ONNX Runtime 模型包
 - `--method huggingface|modelscope` 指定下载渠道
+
+## 🧪 ONNX Runtime GPU 实验环境（替代 PyTorch + CUDA）
+
+为避免和主环境依赖互相污染，项目现已支持独立的 `onnx-gpu` pixi 环境（`no-default-feature=true`）。
+
+### 1) 安装 ONNX 实验环境
+```powershell
+pixi install -e onnx-gpu
+```
+
+### 2) 下载 ONNX 模型仓库
+```powershell
+python core/download.py --cosyvoice3-onnx --method huggingface
+```
+
+默认目录结构应为：
+```text
+pretrained_models/
+└─ Fun-CosyVoice3-0.5B/
+   ├─ cosyvoice3.yaml
+   └─ onnx/
+      ├─ scripts/onnx_inference_pure.py
+      └─ *.onnx
+```
+
+### 3) 运行 ONNX 后端
+```powershell
+pixi run -e onnx-gpu start
+```
+
+或启动 API：
+```powershell
+pixi run -e onnx-gpu api
+```
+
+你也可以在界面「设置」中将推理后端切到 `ONNX Runtime GPU`，并在「模型下载」页面配置/下载 ONNX 路径。
 
 ##  两种使用方式概览
 

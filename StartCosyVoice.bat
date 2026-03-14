@@ -1,4 +1,6 @@
 @echo off
+set "UV_HTTP_TIMEOUT=300"
+set "UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple"
 chcp 65001 > nul
 setlocal enabledelayedexpansion
 title CosyVoice Desktop Pro

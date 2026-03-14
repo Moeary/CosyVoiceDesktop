@@ -1,5 +1,4 @@
 import time
-import io
 import os
 import sys
 import json
@@ -8,7 +7,6 @@ import subprocess
 import tempfile
 import logging
 import warnings
-from pathlib import Path
 
 # 禁用 tqdm
 os.environ["TQDM_DISABLE"] = "1"
@@ -20,14 +18,12 @@ sys.path.insert(0, os.path.join(ROOT_DIR, '..'))
 sys.path.insert(0, os.path.join(ROOT_DIR, '../third_party/AcademiCodec'))
 sys.path.insert(0, os.path.join(ROOT_DIR, '../third_party/Matcha-TTS'))
 
-import numpy as np
 from flask import Flask, request, Response
-import torch
-import torchaudio
-
-from cosyvoice.cli.cosyvoice import AutoModel
-from cosyvoice.utils.file_utils import load_wav
 from flask_cors import CORS
+try:
+    from .audio_utils import concat_speeches, load_wav, save_wav_file, save_wav_buffer
+except ImportError:
+    from core.audio_utils import concat_speeches, load_wav, save_wav_file, save_wav_buffer
 
 # ==================== 日志配置 ====================
 
@@ -728,11 +724,24 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
                 tts_text = f'You are a helpful assistant.<|endofprompt|>{tts_text}'
             
             try:
-                # 使用 inference_cross_lingual
-                for output in cosyvoice.inference_cross_lingual(
-                    tts_text,
-                    prompt_audio_path
-                ):
+                # ONNX 后端需要 prompt_text，PyTorch 后端不需要；这里做兼容调用
+                cross_kwargs = {}
+                prompt_text = char_config.get('prompt_text', '') or text
+                cross_kwargs["prompt_text"] = prompt_text
+
+                try:
+                    cross_generator = cosyvoice.inference_cross_lingual(
+                        tts_text,
+                        prompt_audio_path,
+                        **cross_kwargs
+                    )
+                except TypeError:
+                    cross_generator = cosyvoice.inference_cross_lingual(
+                        tts_text,
+                        prompt_audio_path
+                    )
+
+                for output in cross_generator:
                     tts_speeches.append(output['tts_speech'])
             except Exception as e:
                 api_logger.error(f"❌ [精细控制] 推理异常: {e}")
@@ -748,38 +757,35 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
             return None
         
         # 合并音频
-        audio_data = torch.concat(tts_speeches, dim=1)
+        audio_data = concat_speeches(tts_speeches)
         
         # 处理速度变化
         if speed != 1.0:
-            # 保存为临时文件
             sample_rate = getattr(cosyvoice, 'sample_rate', 22050)
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_input:
-                torchaudio.save(tmp_input.name, audio_data, sample_rate, format='wav')
                 temp_input_path = tmp_input.name
-            
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_output:
                 temp_output_path = tmp_output.name
-            
-            # 使用 FFmpeg 变速
-            if speed_change_ffmpeg(temp_input_path, speed, temp_output_path):
-                # 读取变速后的音频
-                audio_data, _ = torchaudio.load(temp_output_path)
-                os.unlink(temp_input_path)
-                os.unlink(temp_output_path)
-            else:
-                os.unlink(temp_input_path)
-                os.unlink(temp_output_path)
-                api_logger.warning("⚠️ Speed change failed, returning original audio")
-        
-        # 保存到内存缓冲区
-        buffer = io.BytesIO()
+
+            try:
+                save_wav_file(temp_input_path, audio_data, sample_rate)
+
+                # 使用 FFmpeg 变速
+                if speed_change_ffmpeg(temp_input_path, speed, temp_output_path):
+                    audio_data, _ = load_wav(temp_output_path)
+                else:
+                    api_logger.warning("⚠️ Speed change failed, returning original audio")
+            finally:
+                for temp_file in (temp_input_path, temp_output_path):
+                    if temp_file and os.path.exists(temp_file):
+                        os.unlink(temp_file)
+
+        # 保存到内存缓冲区（WAV）
         sample_rate = getattr(cosyvoice, 'sample_rate', 22050)
-        torchaudio.save(buffer, audio_data, sample_rate, format='wav')
-        buffer.seek(0)
+        buffer = save_wav_buffer(audio_data, sample_rate)
         
         # 计算音频时长（秒）
-        audio_duration = audio_data.shape[1] / sample_rate if audio_data.numel() > 0 else 0
+        audio_duration = audio_data.shape[1] / sample_rate if audio_data.size > 0 else 0
         audio_size_mb = buffer.getbuffer().nbytes / (1024 * 1024)
         
         # 计算推理耗时和RTF
