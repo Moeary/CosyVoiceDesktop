@@ -15,7 +15,7 @@ from qfluentwidgets import (
 )
 
 from core.models import TaskSegment
-from core.worker import AudioGenerationWorker, ModelLoaderThread, ModelUnloaderThread
+from core.worker import AudioGenerationWorker, ModelLoaderThread, ModelUnloaderThread, RoleAssignmentWorker
 from core.utils import merge_audio_files
 from core.config_manager import ConfigManager
 
@@ -36,6 +36,7 @@ class CosyVoiceProApp(FluentWindow):
         self.current_worker = None
         self.model_loader_thread = None
         self.model_unloader_thread = None
+        self.role_assign_worker = None
         
         # Qt5 Audio Setup
         self.media_player = QMediaPlayer()
@@ -187,6 +188,7 @@ class CosyVoiceProApp(FluentWindow):
         
         # 文本编辑按钮
         self.text_interface.quick_run_button.clicked.connect(self.quick_run)
+        self.text_interface.ai_assign_button.clicked.connect(self.assign_roles_with_ai)
         self.text_interface.to_task_button.clicked.connect(self.to_task_plan)
         
         # 任务计划按钮
@@ -238,7 +240,148 @@ class CosyVoiceProApp(FluentWindow):
         """应用语音设置"""
         configs = self.voice_interface.get_voice_configs()
         self.text_interface.set_voice_configs(configs)
+        self.text_interface.set_default_voice_config(
+            self.config_manager.get("default_speaker_name", "")
+        )
+        self.text_interface.load_manual_assignments_from_text()
         self.task_interface.set_all_voice_configs(configs)
+
+    def assign_roles_with_ai(self):
+        """调用 LLM 自动分配文本角色"""
+        if self.role_assign_worker and self.role_assign_worker.isRunning():
+            InfoBar.warning(
+                title="正在分析",
+                content="角色分配请求仍在进行中",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+
+        voice_configs = self.voice_interface.get_voice_configs()
+        if not voice_configs:
+            InfoBar.warning(
+                title="缺少角色",
+                content="请先在语音设置页面创建角色配置",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+
+        document_text = self.text_interface.get_plain_text()
+        if not document_text.strip():
+            InfoBar.warning(
+                title="没有文本",
+                content="请输入至少一段非空文本后再执行 AI 分配",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+
+        segments = self.text_interface.get_assignable_blocks()
+
+        if not self.config_manager.get("llm_base_url", ""):
+            InfoBar.warning(
+                title="缺少配置",
+                content="请先在设置页面填写 LLM Base URL",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+
+        if not self.config_manager.get("llm_model", ""):
+            InfoBar.warning(
+                title="缺少配置",
+                content="请先在设置页面填写 LLM 模型名称",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+
+        self.text_interface.ai_assign_button.setEnabled(False)
+        self.text_interface.ai_assign_button.setText("正在分析...")
+
+        self.role_assign_worker = RoleAssignmentWorker(
+            self.config_manager,
+            segments,
+            document_text,
+            voice_configs
+        )
+        self.role_assign_worker.success.connect(self.on_role_assignment_success)
+        self.role_assign_worker.error.connect(self.on_role_assignment_error)
+        self.role_assign_worker.start()
+
+    def on_role_assignment_success(self, result: dict):
+        self.text_interface.ai_assign_button.setEnabled(True)
+        self.text_interface.ai_assign_button.setText("AI分配角色")
+
+        assignments = result.get('assignments', [])
+        if not assignments:
+            self.on_role_assignment_error("角色分配结果为空")
+            return
+
+        self.text_interface.set_ai_assignments(assignments)
+
+        if result.get('auto_apply', False):
+            applied_count = self.text_interface.apply_current_ai_assignments(clear_existing=True)
+            if applied_count:
+                InfoBar.success(
+                    title="分配完成",
+                    content=f"AI 结果已同步到侧边栏，并按当前映射自动写入 {applied_count} 个段落的角色标签",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+            else:
+                InfoBar.success(
+                    title="分析完成",
+                    content="AI 结果已同步到右侧，但当前没有可自动应用的映射，请先为分组选择本地角色。",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=3500,
+                    parent=self
+                )
+            return
+
+        InfoBar.success(
+            title="分析完成",
+            content=f"AI 已完成 {len(assignments)} 个段落的全文分析，结果已显示在右侧 AI 分组控制台",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3500,
+            parent=self
+        )
+
+    def on_role_assignment_error(self, error_msg: str):
+        self.text_interface.ai_assign_button.setEnabled(True)
+        self.text_interface.ai_assign_button.setText("AI分配角色")
+        InfoBar.error(
+            title="分配失败",
+            content=error_msg,
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=5000,
+            parent=self
+        )
     
     def toggle_theme(self):
         """在Light和Dark之间切换主题"""
@@ -368,6 +511,9 @@ class CosyVoiceProApp(FluentWindow):
     
     def quick_run(self):
         """一键运行"""
+        self.text_interface.set_default_voice_config(
+            self.config_manager.get("default_speaker_name", "")
+        )
         segments = self.text_interface.get_text_segments()
         if not segments:
             InfoBar.warning(
@@ -392,6 +538,9 @@ class CosyVoiceProApp(FluentWindow):
     
     def to_task_plan(self):
         """转到任务计划"""
+        self.text_interface.set_default_voice_config(
+            self.config_manager.get("default_speaker_name", "")
+        )
         segments = self.text_interface.get_text_segments()
         if not segments:
             InfoBar.warning(

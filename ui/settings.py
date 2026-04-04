@@ -1,10 +1,10 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFileDialog
-from qfluentwidgets import (
-    ComboBox, SwitchButton, SpinBox, SubtitleLabel, BodyLabel, 
-    setTheme, Theme, PushButton, ScrollArea, LineEdit
-)
-from core.config_manager import ConfigManager
 import os
+
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QLineEdit
+from PyQt5.QtCore import Qt
+from qfluentwidgets import SwitchButton, SpinBox, SubtitleLabel, BodyLabel, PushButton, PrimaryPushButton, LineEdit, InfoBar, InfoBarPosition
+
+from core.config_manager import ConfigManager
 
 class SettingsInterface(QWidget):
     """设置界面 - 现在包含侧边栏内容"""
@@ -21,7 +21,7 @@ class SettingsInterface(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
 
         # 标题
-        title = SubtitleLabel("⚙️ 应用设置")
+        title = SubtitleLabel("应用设置")
         layout.addWidget(title)
 
         # 模型自动加载设置
@@ -56,8 +56,8 @@ class SettingsInterface(QWidget):
         min_text_tip.setStyleSheet("color: gray; font-size: 12px;")
         layout.addWidget(min_text_tip)
 
-        # 路径设置
-        path_title = SubtitleLabel("📁 路径设置")
+        save_llm_layout = QHBoxLayout()
+        path_title = SubtitleLabel("路径设置")
         layout.addWidget(path_title)
         
         # 输出目录
@@ -71,7 +71,97 @@ class SettingsInterface(QWidget):
         model_tip.setStyleSheet("color: gray; font-size: 12px;")
         layout.addWidget(model_tip)
 
-        layout.addStretch()
+        # AI 角色分配设置
+        llm_title = SubtitleLabel("AI 角色分配")
+        layout.addWidget(llm_title)
+
+        self.llm_base_url_edit = self.create_line_setting(
+            layout,
+            "LLM Base URL",
+            "llm_base_url",
+            "例如: http://127.0.0.1:8000 或 http://127.0.0.1:8000/v1",
+            auto_save=False
+        )
+
+        self.llm_api_key_edit = self.create_line_setting(
+            layout,
+            "LLM API Key",
+            "llm_api_key",
+            "可留空，兼容本地无鉴权服务",
+            auto_save=False
+        )
+        self.llm_api_key_edit.setEchoMode(QLineEdit.Password)
+
+        self.llm_model_edit = self.create_line_setting(
+            layout,
+            "LLM 模型名称",
+            "llm_model",
+            "例如: qwen/qwen3-32b",
+            auto_save=False
+        )
+
+        timeout_layout = QHBoxLayout()
+        timeout_label = BodyLabel("LLM 请求超时（秒）")
+        self.llm_timeout_spin = SpinBox()
+        self.llm_timeout_spin.setRange(5, 600)
+        self.llm_timeout_spin.valueChanged.connect(
+            lambda value: self.config_manager.set("llm_timeout_sec", value)
+        )
+        timeout_layout.addWidget(timeout_label)
+        timeout_layout.addStretch()
+        timeout_layout.addWidget(self.llm_timeout_spin)
+        layout.addLayout(timeout_layout)
+
+        auto_apply_layout = QHBoxLayout()
+        auto_apply_label = BodyLabel("AI 分配后自动应用")
+        self.llm_auto_apply_switch = SwitchButton()
+        self.llm_auto_apply_switch.checkedChanged.connect(
+            lambda checked: self.config_manager.set("llm_auto_apply", checked)
+        )
+        auto_apply_layout.addWidget(auto_apply_label)
+        auto_apply_layout.addStretch()
+        auto_apply_layout.addWidget(self.llm_auto_apply_switch)
+        layout.addLayout(auto_apply_layout)
+
+        self.default_speaker_edit = self.create_line_setting(
+            layout,
+            "默认角色名称",
+            "default_speaker_name",
+            "留空则回退到第一个角色，建议填写旁白角色",
+            auto_save=False
+        )
+
+        llm_tip = BodyLabel(
+            "文本页的“AI分配角色”会调用 OpenAI 兼容 Chat Completions 接口，"
+            "结果会显示在文本页右侧的角色控制台；自动模式会直接写入角色标签。"
+        )
+        llm_tip.setWordWrap(True)
+        llm_tip.setStyleSheet("color: gray; font-size: 12px;")
+        layout.addWidget(llm_tip)
+
+        layout.addStretch(1)
+
+        save_llm_layout.addStretch()
+        self.save_settings_button = PrimaryPushButton("保存设置")
+        self.save_settings_button.clicked.connect(self.save_settings)
+        save_llm_layout.addWidget(self.save_settings_button)
+        layout.addLayout(save_llm_layout)
+
+    def create_line_setting(self, layout, title, config_key, placeholder="", auto_save=True):
+        container = QVBoxLayout()
+        container.setSpacing(5)
+
+        label = BodyLabel(title)
+        container.addWidget(label)
+
+        line_edit = LineEdit()
+        line_edit.setPlaceholderText(placeholder)
+        if auto_save:
+            line_edit.textChanged.connect(lambda text: self.config_manager.set(config_key, text))
+        container.addWidget(line_edit)
+
+        layout.addLayout(container)
+        return line_edit
 
     def create_path_setting(self, title, config_key, is_dir=True):
         layout = QVBoxLayout()
@@ -114,7 +204,37 @@ class SettingsInterface(QWidget):
         min_text_length = self.config_manager.get("min_text_length", 5)
         self.min_text_spin.setValue(min_text_length)
 
+        self.llm_base_url_edit.setText(self.config_manager.get("llm_base_url", ""))
+        self.llm_api_key_edit.setText(self.config_manager.get("llm_api_key", ""))
+        self.llm_model_edit.setText(self.config_manager.get("llm_model", ""))
+        self.llm_timeout_spin.setValue(self.config_manager.get("llm_timeout_sec", 60))
+        self.llm_auto_apply_switch.setChecked(self.config_manager.get("llm_auto_apply", False))
+        self.default_speaker_edit.setText(self.config_manager.get("default_speaker_name", ""))
         self.output_path_edit.setText(self.config_manager.get("output_dir", "./output"))
+
+    def save_settings(self):
+        self.config_manager.config.update({
+            "llm_base_url": self.llm_base_url_edit.text().strip(),
+            "llm_api_key": self.llm_api_key_edit.text(),
+            "llm_model": self.llm_model_edit.text().strip(),
+            "llm_timeout_sec": self.llm_timeout_spin.value(),
+            "llm_auto_apply": self.llm_auto_apply_switch.isChecked(),
+            "default_speaker_name": self.default_speaker_edit.text().strip(),
+            "output_dir": self.output_path_edit.text().strip(),
+            "auto_load_model": self.auto_load_switch.isChecked(),
+            "min_text_length": self.min_text_spin.value(),
+        })
+        self.config_manager.save_config()
+
+        InfoBar.success(
+            title="保存成功",
+            content="设置已保存，下次启动会自动加载这些内容。",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2500,
+            parent=self
+        )
 
     def on_auto_load_changed(self, checked):
         self.config_manager.set("auto_load_model", checked)

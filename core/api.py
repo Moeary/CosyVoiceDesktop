@@ -260,6 +260,97 @@ def set_min_text_length(length: int):
     api_logger.debug(f'✅ Min text length set to {length}')
 
 
+def make_json_response(payload: dict | list, status: int = 200):
+    response = app.response_class(
+        response=json.dumps(payload, ensure_ascii=False),
+        status=status,
+        mimetype='application/json'
+    )
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    return response
+
+
+def make_options_response():
+    response = app.response_class(
+        response='',
+        status=200,
+        mimetype='text/plain'
+    )
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    return response
+
+
+def extract_voice_name(voice_value) -> str:
+    if isinstance(voice_value, dict):
+        return str(voice_value.get('id', '') or voice_value.get('name', '')).strip()
+    return str(voice_value or '').strip()
+
+
+def build_speaker_items() -> list:
+    items = []
+    if character_config is None:
+        return items
+
+    for char_name in character_config.list_characters():
+        items.append({
+            'id': char_name,
+            'name': char_name,
+            'voice_id': char_name,
+            'object': 'speaker'
+        })
+    return items
+
+
+def convert_audio_buffer_format(audio_buffer: io.BytesIO, response_format: str):
+    fmt = (response_format or 'wav').strip().lower()
+    if fmt == 'wav':
+        audio_buffer.seek(0)
+        return audio_buffer, 'audio/wav'
+
+    if fmt == 'pcm':
+        audio_buffer.seek(0)
+        audio_data, _ = torchaudio.load(audio_buffer)
+        pcm_data = audio_data.clamp(-1.0, 1.0).mul(32767).to(torch.int16)
+        raw_buffer = io.BytesIO(pcm_data.transpose(0, 1).contiguous().numpy().tobytes())
+        raw_buffer.seek(0)
+        return raw_buffer, 'audio/pcm'
+
+    ffmpeg_formats = {
+        'mp3': ('audio/mpeg', '.mp3'),
+        'flac': ('audio/flac', '.flac'),
+        'aac': ('audio/aac', '.aac'),
+        'opus': ('audio/ogg', '.opus'),
+    }
+    if fmt not in ffmpeg_formats:
+        raise ValueError(f'不支持的输出格式: {fmt}')
+
+    mime_type, suffix = ffmpeg_formats[fmt]
+    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_input:
+        audio_buffer.seek(0)
+        tmp_input.write(audio_buffer.read())
+        temp_input_path = tmp_input.name
+
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp_output:
+        temp_output_path = tmp_output.name
+
+    try:
+        success = run_ffmpeg(temp_input_path, temp_output_path)
+        if not success:
+            raise RuntimeError(f'FFmpeg 转换 {fmt} 失败')
+
+        with open(temp_output_path, 'rb') as f:
+            output_buffer = io.BytesIO(f.read())
+        output_buffer.seek(0)
+        return output_buffer, mime_type
+    finally:
+        if os.path.exists(temp_input_path):
+            os.unlink(temp_input_path)
+        if os.path.exists(temp_output_path):
+            os.unlink(temp_output_path)
+
+
 # ==================== 酒馆标准 API 端点 ====================
 
 # ==================== 酒馆标准 API 端点 ====================
@@ -580,6 +671,106 @@ def get_speakers():
         )
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
+
+@app.route('/v1/audio/speakers', methods=['GET', 'OPTIONS'])
+@app.route('/v1/audio/voices', methods=['GET', 'OPTIONS'])
+def get_openai_speakers():
+    """
+    OpenAI 兼容扩展端点 - 返回本地配置中的角色列表
+    """
+    if request.method == 'OPTIONS':
+        return make_options_response()
+
+    try:
+        return make_json_response({
+            'object': 'list',
+            'data': build_speaker_items()
+        })
+    except Exception as e:
+        return make_json_response({'error': str(e)}, status=500)
+
+
+@app.route('/v1/audio/speech', methods=['POST', 'OPTIONS'])
+def openai_audio_speech():
+    """
+    OpenAI TTS 兼容端点
+
+    请求格式:
+    {
+        "model": "gpt-4o-mini-tts",
+        "input": "要生成的文本",
+        "voice": "角色名称" 或 {"id": "角色名称"},
+        "instructions": "附加指令",
+        "speed": 1.0,
+        "response_format": "mp3|wav|flac|aac|opus|pcm"
+    }
+    """
+    if request.method == 'OPTIONS':
+        return make_options_response()
+
+    try:
+        if cosyvoice is None:
+            return make_json_response({'error': '模型未加载'}, status=500)
+
+        data = request.get_json(silent=True) or {}
+        text = str(data.get('input', '') or data.get('text', '')).strip()
+        voice_name = extract_voice_name(data.get('voice', '') or data.get('speaker', ''))
+        speed = float(data.get('speed', 1.0))
+        response_format = str(data.get('response_format', '') or data.get('format', '') or 'mp3').strip().lower()
+        instructions = str(data.get('instructions', '') or '').strip()
+        override_mode = str(data.get('mode', '') or '').strip() or None
+
+        api_logger.info(
+            f"📝 POST /v1/audio/speech: voice={voice_name}, format={response_format}, "
+            f"speed={speed}, text_len={len(text)}"
+        )
+
+        if not text:
+            return make_json_response({'error': 'input 不能为空'}, status=400)
+        if not voice_name:
+            return make_json_response({'error': 'voice 不能为空'}, status=400)
+
+        char_config = character_config.get_character(voice_name)
+        if not char_config:
+            return make_json_response({'error': f'未找到角色: {voice_name}'}, status=404)
+
+        char_config = dict(char_config)
+        if instructions:
+            char_config['instruct_text'] = instructions
+            char_config['mode'] = '指令控制'
+
+        original_text = text
+        text = clean_text(text)
+        if len(text) != len(original_text):
+            api_logger.warning(f'Text cleaned: {len(original_text)} -> {len(text)} chars')
+
+        if len(text) < min_text_length:
+            error_msg = f'文本长度({len(text)}) < 最小长度({min_text_length}), 已跳过'
+            api_logger.warning(error_msg)
+            return make_json_response({'error': error_msg}, status=400)
+
+        audio_buffer = _inference(
+            text=text,
+            char_config=char_config,
+            mode=override_mode,
+            speed=speed
+        )
+        if audio_buffer is None:
+            return make_json_response({'error': '生成音频失败'}, status=500)
+
+        converted_buffer, mime_type = convert_audio_buffer_format(audio_buffer, response_format)
+        converted_buffer.seek(0)
+        response = Response(converted_buffer.read(), mimetype=mime_type)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+
+    except ValueError as e:
+        return make_json_response({'error': str(e)}, status=400)
+    except Exception as e:
+        print(f"❌ Error in /v1/audio/speech: {e}")
+        import traceback
+        traceback.print_exc()
+        return make_json_response({'error': f'请求异常: {str(e)[:150]}'}, status=500)
 
 @app.route('/api/health', methods=['GET'])
 def health_check():

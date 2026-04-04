@@ -49,7 +49,7 @@ class APIDocDialog(MessageBoxBase):
 
 ---
 
-## 2. 获取角色列表
+## 2. 获取角色列表（SillyTavern / 通用）
 **方法:** GET  
 **URL:** `http://127.0.0.1:9880/speakers`
 
@@ -81,7 +81,43 @@ class APIDocDialog(MessageBoxBase):
 
 ---
 
-## 4. 健康检查
+## 4. OpenAI TTS 兼容端点
+**方法:** POST  
+**URL:** `http://127.0.0.1:9880/v1/audio/speech`
+
+**请求体:**
+```json
+{
+  "model": "gpt-4o-mini-tts",
+  "input": "要生成的文本",
+  "voice": "角色名称",
+  "instructions": "可选，附加语气/风格指令",
+  "speed": 1.0,
+  "response_format": "mp3"
+}
+```
+
+**返回:** `mp3/wav/flac/aac/opus/pcm` 音频内容
+
+---
+
+## 5. OpenAI 兼容角色列表扩展端点
+**方法:** GET  
+**URL:** `http://127.0.0.1:9880/v1/audio/speakers`
+
+**返回:**
+```json
+{
+  "object": "list",
+  "data": [
+    {"id": "角色名", "name": "角色名", "voice_id": "角色名", "object": "speaker"}
+  ]
+}
+```
+
+---
+
+## 6. 健康检查
 **方法:** GET  
 **URL:** `http://127.0.0.1:9880/api/health`
 
@@ -216,7 +252,7 @@ class APIPageInterface(QWidget):
         
         # 标题和文档按钮
         title_layout = QHBoxLayout()
-        title = SubtitleLabel("🔌 API 服务(SillyTavern适配)")
+        title = SubtitleLabel("🔌 API 服务(SillyTavern / OpenAI TTS 兼容)")
         title_layout.addWidget(title)
         title_layout.addStretch()
         

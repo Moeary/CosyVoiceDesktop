@@ -13,7 +13,17 @@ class ConfigManager:
             "project_name": "project",
             "output_dir": "./output",
             "cosyvoice_model_path": "./pretrained_models",
-            "wetext_model_path": "./pretrained_models"
+            "wetext_model_path": "./pretrained_models",
+            "llm_base_url": "",
+            "llm_api_key": "",
+            "llm_model": "",
+            "llm_timeout_sec": 60,
+            "llm_auto_apply": False,
+            "default_speaker_name": "",
+            "api_port": 9880,
+            "api_host": "127.0.0.1",
+            "min_text_length": 5,
+            "auto_load_model": False,
         }
         self.load_config()
 
