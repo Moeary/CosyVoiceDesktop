@@ -3,18 +3,17 @@ authors = ["Moeary"]
 channels = ["conda-forge"]
 name = "CosyVoiceDesktop"
 platforms = ["win-64"]
-version = "1.4.0"
+version = "1.6.0"
 
 [tasks]
 start = "python main.py"
 api = "python core/api.py --config config/哆啦A梦.json --port 9880"
+test = "python -m unittest discover test -p \"test_*.py\""
 
 [dependencies]
 python = "3.12.*"
 ffmpeg = "*"
 modelscope = ">=1.33.0,<2"
-flask = ">=3.1.2,<4"
-flask_cors = ">=4.0.0,<5"
 
 [pypi-dependencies]
 torch = { url = "https://mirrors.aliyun.com/pytorch-wheels/cu128/torch-2.7.0%2Bcu128-cp312-cp312-win_amd64.whl" }

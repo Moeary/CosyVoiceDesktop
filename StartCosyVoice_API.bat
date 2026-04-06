@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 > nul
 setlocal enabledelayedexpansion
-title CosyVoice Desktop Pro
+title CosyVoice API
 
 echo ====================================
-echo    CosyVoice Desktop v1.6
+echo    CosyVoice API v1.6
 echo ====================================
 echo.
 
@@ -56,8 +56,8 @@ if "!PYTHON!"=="" (
     exit /b 1
 )
 
-REM 运行主程序
-"!PYTHON!" main.py %*
+REM 运行 API 服务
+"!PYTHON!" core/api.py --config config/哆啦A梦.json --port 9880 %*
 
 if errorlevel 1 (
     echo.
