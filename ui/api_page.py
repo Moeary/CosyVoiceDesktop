@@ -4,6 +4,7 @@ import threading
 import logging
 import importlib
 import requests
+import uvicorn
 from datetime import datetime
 
 from PyQt5.QtWidgets import (
@@ -19,7 +20,6 @@ from qfluentwidgets import (
 )
 
 from core.worker import ModelLoaderThread
-from werkzeug.serving import make_server
 
 class APIDocDialog(MessageBoxBase):
     """API 文档对话框"""
@@ -30,13 +30,12 @@ class APIDocDialog(MessageBoxBase):
         
         self.doc_text = TextEdit(self)
         self.doc_text.setReadOnly(True)
-        self.doc_text.setMarkdown("""# CosyVoice3 API 文档
+        self.doc_text.setMarkdown("""# CosyVoice API 文档
 
-## 1. 酒馆标准 TTS 端点
+## 1. SillyTavern 兼容 TTS
 **方法:** POST  
 **URL:** `http://127.0.0.1:9880/`
 
-**请求体:**
 ```json
 {
   "text": "要生成的文本",
@@ -45,50 +44,29 @@ class APIDocDialog(MessageBoxBase):
 }
 ```
 
-**返回:** WAV 音频文件
+**返回:** `audio/wav`
 
 ---
 
-## 2. 获取角色列表（SillyTavern / 通用）
+## 2. SillyTavern 角色列表
 **方法:** GET  
 **URL:** `http://127.0.0.1:9880/speakers`
 
-**返回:**
 ```json
 [
-  {"name": "角色名", "voice_id": "角色名"},
-  ...
+  {"name": "角色名", "voice_id": "角色名"}
 ]
 ```
 
 ---
 
-## 3. 标准 API 端点
-**方法:** POST  
-**URL:** `http://127.0.0.1:9880/api/tts`
-
-**请求体:**
-```json
-{
-  "text": "要生成的文本",
-  "character_name": "角色名称",
-  "mode": "零样本复制|精细控制|指令控制",
-  "speed": 1.0
-}
-```
-
-**返回:** WAV 音频文件
-
----
-
-## 4. OpenAI TTS 兼容端点
+## 3. OpenAI 兼容 TTS
 **方法:** POST  
 **URL:** `http://127.0.0.1:9880/v1/audio/speech`
 
-**请求体:**
 ```json
 {
-  "model": "gpt-4o-mini-tts",
+  "model": "cosyvoice-openai-tts",
   "input": "要生成的文本",
   "voice": "角色名称",
   "instructions": "可选，附加语气/风格指令",
@@ -97,54 +75,84 @@ class APIDocDialog(MessageBoxBase):
 }
 ```
 
-**返回:** `mp3/wav/flac/aac/opus/pcm` 音频内容
+**返回:** `mp3/wav/flac/aac/opus/pcm`
 
 ---
 
-## 5. OpenAI 兼容角色列表扩展端点
+## 4. OpenAI 兼容角色列表扩展
 **方法:** GET  
-**URL:** `http://127.0.0.1:9880/v1/audio/speakers`
-
-**返回:**
-```json
-{
-  "object": "list",
-  "data": [
-    {"id": "角色名", "name": "角色名", "voice_id": "角色名", "object": "speaker"}
-  ]
-}
-```
+**URL:** `http://127.0.0.1:9880/v1/audio/voices`
 
 ---
 
-## 6. OpenAI 兼容模型列表端点
+## 5. OpenAI 兼容模型列表
 **方法:** GET  
 **URL:** `http://127.0.0.1:9880/v1/models`
 
-**返回:**
+---
+
+## 6. CosyVoice 原生 JSON 接口
+**方法:** POST  
+**URL:** `http://127.0.0.1:9880/cosyvoice/speech`
+
 ```json
 {
-  "object": "list",
-  "data": [
-    {"id": "cosyvoice-openai-tts", "object": "model", "owned_by": "CosyVoiceDesktop"}
-  ]
+  "text": "要生成的文本",
+  "profile": "可选，本地预设名",
+  "mode": "zero_shot",
+  "prompt_audio_path": "D:/voices/demo.wav",
+  "prompt_text": "这是参考音频对应的文本",
+  "instruct_text": "用温柔平静的语气朗读",
+  "speed": 1.0,
+  "response_format": "wav"
 }
 ```
+
+**模式说明**
+- `zero_shot`: 语音克隆，需要 `prompt_audio_path/prompt_audio + prompt_text`
+- `cross_lingual`: 精细控制，需要 `prompt_audio_path/prompt_audio`
+- `instruct`: 指令模式，需要 `prompt_audio_path/prompt_audio + instruct_text`
 
 ---
 
-## 7. 健康检查
-**方法:** GET  
-**URL:** `http://127.0.0.1:9880/api/health`
+## 7. CosyVoice 原生上传接口
+**方法:** POST  
+**URL:** `http://127.0.0.1:9880/cosyvoice/speech/upload`
 
-**返回:**
-```json
-{
-  "status": "ok",
-  "model": "CosyVoice3-0.5B",
-  "characters": ["角色1", "角色2", ...]
-}
-```
+**Content-Type:** `multipart/form-data`
+
+**文件字段:** `prompt_audio`
+
+---
+
+## 8. CosyVoice 原生元信息
+**方法:** GET  
+**URL:** `http://127.0.0.1:9880/cosyvoice/meta`
+
+---
+
+## 9. CosyVoice 本地预设列表
+**方法:** GET  
+**URL:** `http://127.0.0.1:9880/cosyvoice/profiles`
+
+---
+
+## 10. 健康检查
+**方法:** GET  
+**URL:** `http://127.0.0.1:9880/health`
+
+---
+
+## 11. 兼容旧路径
+以下旧路径仍然可用，但不会出现在 FastAPI 文档中：
+
+- `/api/tts`
+- `/api/characters`
+- `/api/tts/cosyvoice`
+- `/api/v1/tts/cosyvoice`
+- `/api/tts/cosyvoice/meta`
+- `/api/v1/tts/cosyvoice/meta`
+- `/api/health`
 """)
         self.doc_text.setMinimumSize(600, 400)
         self.viewLayout.addWidget(self.doc_text)
@@ -227,15 +235,20 @@ class APIServerThread(QThread):
             api_module = self.get_api_module()
             # 设置 API 全局变量
             api_module.set_globals(self.model, self.config_manager)
-            
-            # 创建服务器
-            self.server = make_server(self.host, self.port, api_module.app)
+
+            config = uvicorn.Config(
+                api_module.app,
+                host=self.host,
+                port=self.port,
+                log_config=None,
+                access_log=False,
+            )
+            self.server = uvicorn.Server(config)
+            self.server.install_signal_handlers = lambda: None
             self.is_running = True
             self.started_signal.emit()
             self.log_signal.emit(f"🚀 API Server started at http://{self.host}:{self.port}")
-            
-            # 启动服务循环
-            self.server.serve_forever()
+            self.server.run()
             
         except Exception as e:
             self.error_signal.emit(str(e))
@@ -246,7 +259,7 @@ class APIServerThread(QThread):
 
     def stop(self):
         if self.server:
-            self.server.shutdown()
+            self.server.should_exit = True
 
 class APIPageInterface(QWidget):
     """API 服务管理界面"""
@@ -273,7 +286,7 @@ class APIPageInterface(QWidget):
         
         # 标题和文档按钮
         title_layout = QHBoxLayout()
-        title = SubtitleLabel("API 服务(SillyTavern / OpenAI TTS 兼容)")
+        title = SubtitleLabel("API 服务(SillyTavern / OpenAI / CosyVoice Native)")
         title_layout.addWidget(title)
         title_layout.addStretch()
         
