@@ -22,11 +22,6 @@ sys.path.insert(0, os.path.join(ROOT_DIR, '../third_party/Matcha-TTS'))
 
 import numpy as np
 from flask import Flask, request, Response
-import torch
-import torchaudio
-
-from cosyvoice.cli.cosyvoice import AutoModel
-from cosyvoice.utils.file_utils import load_wav
 from flask_cors import CORS
 
 # ==================== 日志配置 ====================
@@ -46,6 +41,12 @@ logging.getLogger('lightning').setLevel(logging.ERROR)
 
 # 创建一个处理器用于日志回调
 log_callbacks = []
+
+
+def get_torch_modules():
+    import torch
+    import torchaudio
+    return torch, torchaudio
 
 class CallbackHandler(logging.Handler):
     """日志处理器，调用回调函数"""
@@ -303,6 +304,16 @@ def build_speaker_items() -> list:
     return items
 
 
+def build_model_items() -> list:
+    return [
+        {
+            'id': 'cosyvoice-openai-tts',
+            'object': 'model',
+            'owned_by': 'CosyVoiceDesktop',
+        }
+    ]
+
+
 def convert_audio_buffer_format(audio_buffer: io.BytesIO, response_format: str):
     fmt = (response_format or 'wav').strip().lower()
     if fmt == 'wav':
@@ -310,6 +321,7 @@ def convert_audio_buffer_format(audio_buffer: io.BytesIO, response_format: str):
         return audio_buffer, 'audio/wav'
 
     if fmt == 'pcm':
+        torch, torchaudio = get_torch_modules()
         audio_buffer.seek(0)
         audio_data, _ = torchaudio.load(audio_buffer)
         pcm_data = audio_data.clamp(-1.0, 1.0).mul(32767).to(torch.int16)
@@ -690,6 +702,23 @@ def get_openai_speakers():
         return make_json_response({'error': str(e)}, status=500)
 
 
+@app.route('/v1/models', methods=['GET', 'OPTIONS'])
+def get_openai_models():
+    """
+    OpenAI 兼容模型列表端点
+    """
+    if request.method == 'OPTIONS':
+        return make_options_response()
+
+    try:
+        return make_json_response({
+            'object': 'list',
+            'data': build_model_items()
+        })
+    except Exception as e:
+        return make_json_response({'error': str(e)}, status=500)
+
+
 @app.route('/v1/audio/speech', methods=['POST', 'OPTIONS'])
 def openai_audio_speech():
     """
@@ -711,6 +740,8 @@ def openai_audio_speech():
     try:
         if cosyvoice is None:
             return make_json_response({'error': '模型未加载'}, status=500)
+        if character_config is None:
+            return make_json_response({'error': '角色配置未加载'}, status=500)
 
         data = request.get_json(silent=True) or {}
         text = str(data.get('input', '') or data.get('text', '')).strip()
@@ -762,6 +793,7 @@ def openai_audio_speech():
         converted_buffer.seek(0)
         response = Response(converted_buffer.read(), mimetype=mime_type)
         response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Content-Disposition'] = f'inline; filename=\"speech.{response_format}\"'
         return response
 
     except ValueError as e:
@@ -811,6 +843,7 @@ def _inference(text: str, char_config: dict, mode: str = None, speed: float = 1.
     """
     start_time = time.time()
     try:
+        torch, torchaudio = get_torch_modules()
         if cosyvoice is None:
             api_logger.error("Model not loaded")
             return None

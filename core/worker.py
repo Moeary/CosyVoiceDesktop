@@ -1,8 +1,6 @@
 import sys
 import os
-import torch
 import random
-import torchaudio
 from typing import List, Optional
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -122,6 +120,9 @@ class AudioGenerationWorker(QThread):
     
     def run(self):
         try:
+            import torch
+            import torchaudio
+
             # 如果没有模型，先加载
             if self.cosyvoice is None:
                 self.progress.emit("📦 正在加载CosyVoice模型...")

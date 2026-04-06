@@ -112,14 +112,25 @@ def _normalize_category(value: str) -> str:
     return mapping.get(text, text if text in {'narration', 'dialogue', 'thought', 'system'} else "")
 
 
+def _category_display_name(category: str) -> str:
+    normalized = _normalize_category(category)
+    return {
+        'narration': '旁白',
+        'dialogue': '对话',
+        'thought': '心理',
+        'system': '系统',
+    }.get(normalized, '未分类')
+
+
 def _build_group_name(category: str, speaker_label: str) -> str:
     normalized_category = _normalize_category(category) or 'narration'
+    category_name = _category_display_name(normalized_category)
     speaker = (speaker_label or "").strip()
     if normalized_category in {'dialogue', 'thought'}:
-        return f"{normalized_category} / {speaker or '未识别角色'}"
+        return f"{category_name} / {speaker or '未识别角色'}"
     if normalized_category == 'system' and speaker and _normalize_name(speaker) not in {'system', '系统'}:
-        return f"system / {speaker}"
-    return normalized_category
+        return f"{category_name} / {speaker}"
+    return category_name
 
 
 def _merge_reason_with_speaker(category: str, speaker_label: str, reason: str) -> str:
@@ -269,15 +280,16 @@ class RoleAssignmentService:
             "你要输出的是正文中的真实角色或群体标识，例如 悟空、四猴、众猴、巡海夜叉、旁白。"
             "你必须主动断句，不要把整段长文本合并成一个 item。"
             "通常应在句号、问号、感叹号、分号、说话切换、引号结束、叙述视角切换处断开；一段里有多句时，正常应拆成多个 segments。"
-            "如果一段文字里既有旁白又有对白，必须继续细分，不要整段只给一个 narration。"
-            "带引号的台词、冒号后的发言、以及包含“说、问、答、喊、叫、笑道、低声、怒道、回应、嘀咕、说道、问道、答道、叫道、喝道”等提示词的句子，应优先判为 dialogue。"
-            "即使一句里夹杂少量动作描写，只要核心内容是人物发言，仍应判为 dialogue。"
-            "心理活动、内心独白、自语、自思、自忖优先判为 thought，并尽量指出是谁在想。"
-            "纯叙述、环境描写、动作描写判为 narration；系统提示、舞台说明判为 system。"
-            "对于 dialogue 和 thought，speaker_label 必须尽量填写具体人物或群体名称。"
+            "如果一段文字里既有旁白又有对白，必须继续细分，不要整段只给一个“旁白”。"
+            "category 请优先使用中文标签：旁白、对话、心理、系统。"
+            "带引号的台词、冒号后的发言、以及包含“说、问、答、喊、叫、笑道、低声、怒道、回应、嘀咕、说道、问道、答道、叫道、喝道”等提示词的句子，应优先判为“对话”。"
+            "即使一句里夹杂少量动作描写，只要核心内容是人物发言，仍应判为“对话”。"
+            "心理活动、内心独白、自语、自思、自忖优先判为“心理”，并尽量指出是谁在想。"
+            "纯叙述、环境描写、动作描写判为“旁白”；系统提示、舞台说明判为“系统”。"
+            "对于“对话”和“心理”，speaker_label 必须尽量填写具体人物或群体名称。"
             "如果能从前后文推断出说话人或思考人，就不要留空。"
             "如果连续多段明显属于同一角色发言或思考，应保持 speaker_label 一致。"
-            "如果 dialogue 或 thought 实在无法判断人物，也要写 speaker_label 为“未识别角色”，不要误判成 narration。"
+            "如果“对话”或“心理”实在无法判断人物，也要写 speaker_label 为“未识别角色”，不要误判成“旁白”。"
             "每个 segment.text 必须是原文中的连续原句，尽量保持字面一致，不要改写，不要总结，不要省略。"
             "所有 segment.text 按顺序拼接后，应该覆盖全文正文。"
             "请严格返回 JSON，不要附加解释。"
@@ -290,9 +302,10 @@ class RoleAssignmentService:
             'decision_rules': [
                 '你必须把整篇全文作为一个连续故事来判断，再自行切成适合配音的片段。',
                 '如果输入是一整段长文本，输出必须拆成多个 segments，不能只返回一个总段落。',
-                'dialogue 和 thought 尽量填具体 speaker_label，例如 悟空、四猴、众猴；不要直接写成本地配音配置名。',
+                'category 优先输出中文标签：旁白、对话、心理、系统。',
+                '“对话”和“心理”尽量填具体 speaker_label，例如 悟空、四猴、众猴；不要直接写成本地配音配置名。',
                 '如果是对话，请在 reason 里简短写出依据，并明确说话人是谁。',
-                '如果是 thought，请在 reason 里简短写出依据，并明确是谁的内心活动。',
+                '如果是心理，请在 reason 里简短写出依据，并明确是谁的内心活动。',
                 '每个 segments[i].text 都必须是原文连续摘录，不能改写。',
                 'segments 数组需要覆盖全文，不能漏掉中间句子。',
             ],
@@ -300,7 +313,7 @@ class RoleAssignmentService:
                 'segments': [
                     {
                         'text': '俺也去。',
-                        'category': 'dialogue',
+                        'category': '对话',
                         'speaker_label': '悟空',
                         'confidence': 0.95,
                         'reason': '说话人: 悟空 | 根据前文“悟空道”判断'
@@ -473,6 +486,7 @@ class RoleAssignmentService:
                 'group_name': str(item.get('group_name') or item.get('group') or '').strip() or _build_group_name(category, raw_speaker),
                 'suggested_voice': suggested_voice,
                 'category': category,
+                'category_display': _category_display_name(category),
                 'confidence': confidence,
                 'reason': reason or ('模型未返回该段说明，已按当前分类展示' if item else '模型未返回该段，已按默认分类补齐'),
                 'text': str(item.get('text') or '').strip(),

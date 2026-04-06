@@ -198,19 +198,29 @@ class SettingsInterface(QWidget):
             self.config_manager.set(config_key, abs_path)
 
     def load_settings(self):
-        auto_load = self.config_manager.get("auto_load_model", False)
-        self.auto_load_switch.setChecked(auto_load)
-        
-        min_text_length = self.config_manager.get("min_text_length", 5)
-        self.min_text_spin.setValue(min_text_length)
+        self.auto_load_switch.blockSignals(True)
+        self.min_text_spin.blockSignals(True)
+        self.llm_timeout_spin.blockSignals(True)
+        self.llm_auto_apply_switch.blockSignals(True)
+        try:
+            auto_load = self.config_manager.get("auto_load_model", False)
+            self.auto_load_switch.setChecked(auto_load)
+            
+            min_text_length = self.config_manager.get("min_text_length", 5)
+            self.min_text_spin.setValue(min_text_length)
 
-        self.llm_base_url_edit.setText(self.config_manager.get("llm_base_url", ""))
-        self.llm_api_key_edit.setText(self.config_manager.get("llm_api_key", ""))
-        self.llm_model_edit.setText(self.config_manager.get("llm_model", ""))
-        self.llm_timeout_spin.setValue(self.config_manager.get("llm_timeout_sec", 60))
-        self.llm_auto_apply_switch.setChecked(self.config_manager.get("llm_auto_apply", False))
-        self.default_speaker_edit.setText(self.config_manager.get("default_speaker_name", ""))
-        self.output_path_edit.setText(self.config_manager.get("output_dir", "./output"))
+            self.llm_base_url_edit.setText(self.config_manager.get("llm_base_url", ""))
+            self.llm_api_key_edit.setText(self.config_manager.get("llm_api_key", ""))
+            self.llm_model_edit.setText(self.config_manager.get("llm_model", ""))
+            self.llm_timeout_spin.setValue(self.config_manager.get("llm_timeout_sec", 60))
+            self.llm_auto_apply_switch.setChecked(self.config_manager.get("llm_auto_apply", False))
+            self.default_speaker_edit.setText(self.config_manager.get("default_speaker_name", ""))
+            self.output_path_edit.setText(self.config_manager.get("output_dir", "./output"))
+        finally:
+            self.auto_load_switch.blockSignals(False)
+            self.min_text_spin.blockSignals(False)
+            self.llm_timeout_spin.blockSignals(False)
+            self.llm_auto_apply_switch.blockSignals(False)
 
     def save_settings(self):
         self.config_manager.config.update({

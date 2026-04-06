@@ -338,10 +338,14 @@ class CosyVoiceProApp(FluentWindow):
 
         if result.get('auto_apply', False):
             applied_count = self.text_interface.apply_current_ai_assignments(clear_existing=True)
+            unmapped_groups = self.text_interface.get_ai_unmapped_groups()
             if applied_count:
                 InfoBar.success(
                     title="分配完成",
-                    content=f"AI 结果已同步到侧边栏，并按当前映射自动写入 {applied_count} 个段落的角色标签",
+                    content=(
+                        f"AI 结果已同步到侧边栏，并按当前映射自动写入 {applied_count} 个片段的角色标签。"
+                        + (f" 仍有未映射分组: {'、'.join(unmapped_groups[:3])}" if unmapped_groups else "")
+                    ),
                     orient=Qt.Horizontal,
                     isClosable=True,
                     position=InfoBarPosition.TOP,

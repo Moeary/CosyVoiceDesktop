@@ -310,6 +310,7 @@ class CustomTextEdit(TextEdit):
                 'speaker': speaker,
                 'text': block['text'],
                 'category': 'manual' if block['current_speaker'] else 'default_fallback',
+                'category_display': '手动标注' if block['current_speaker'] else '默认角色',
                 'reason': '当前文本已标注该角色' if block['current_speaker'] else '当前文本未显式标注，使用默认角色',
                 'confidence': None,
                 'current_speaker': block['current_speaker'],
@@ -749,11 +750,12 @@ class RoleConsolePanel(SimpleCardWidget):
         items = self.group_entries[self.current_group_index]['items']
         self.segment_table.setRowCount(len(items))
         for row, item in enumerate(items):
-            category = item.get('category', '') or '-'
+            category = item.get('category_display') or item.get('category', '') or '-'
             reason = item.get('reason', '') or '-'
+            category_key = item.get('category', '') or ''
             speaker_label = item.get('speaker_label') or item.get('raw_speaker') or ''
-            if speaker_label and category in {'dialogue', 'thought'} and speaker_label not in reason:
-                prefix = "说话人" if category == 'dialogue' else "思考人"
+            if speaker_label and category_key in {'dialogue', 'thought'} and speaker_label not in reason:
+                prefix = "说话人" if category_key == 'dialogue' else "思考人"
                 reason = f"{prefix}: {speaker_label}" if reason == '-' else f"{prefix}: {speaker_label} | {reason}"
             confidence = item.get('confidence')
             if confidence is not None:
@@ -827,6 +829,13 @@ class RoleConsolePanel(SimpleCardWidget):
         for group_index in range(len(self.group_entries)):
             assignments.extend(self.build_assignments_for_group(group_index))
         return sorted(assignments, key=lambda item: item.get('index', 0))
+
+    def get_unmapped_group_names(self) -> List[str]:
+        return [
+            entry['group_name']
+            for entry in self.group_entries
+            if not entry.get('mapped_speaker')
+        ]
 
     def apply_selected_group(self):
         assignments = self.build_assignments_for_group(self.current_group_index)
@@ -938,7 +947,7 @@ class TextEditInterface(QWidget):
 
         self.ai_panel = RoleConsolePanel(
             "AI分组",
-            "展示 AI 抽取出的 category / speaker 分组，例如 dialogue / 悟空、thought / 悟空、narration，再决定映射到哪个本地配音配置。",
+            "展示 AI 抽取出的中文分组，例如 对话 / 悟空、心理 / 悟空、旁白，再决定映射到哪个本地配音配置。",
             "当前还没有 AI 分组",
             "应用全部 AI 结果"
         )
@@ -1027,6 +1036,9 @@ class TextEditInterface(QWidget):
         if assignments:
             self.apply_voice_assignments(assignments, clear_existing=clear_existing)
         return len(assignments)
+
+    def get_ai_unmapped_groups(self) -> List[str]:
+        return self.ai_panel.get_unmapped_group_names()
 
     def normalize_text_content(self):
         if not self.text_edit.toPlainText().strip():

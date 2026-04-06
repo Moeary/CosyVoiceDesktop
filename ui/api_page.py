@@ -2,6 +2,7 @@ import sys
 import io
 import threading
 import logging
+import importlib
 import requests
 from datetime import datetime
 
@@ -19,7 +20,6 @@ from qfluentwidgets import (
 
 from core.worker import ModelLoaderThread
 from werkzeug.serving import make_server
-from core import api
 
 class APIDocDialog(MessageBoxBase):
     """API 文档对话框"""
@@ -117,7 +117,23 @@ class APIDocDialog(MessageBoxBase):
 
 ---
 
-## 6. 健康检查
+## 6. OpenAI 兼容模型列表端点
+**方法:** GET  
+**URL:** `http://127.0.0.1:9880/v1/models`
+
+**返回:**
+```json
+{
+  "object": "list",
+  "data": [
+    {"id": "cosyvoice-openai-tts", "object": "model", "owned_by": "CosyVoiceDesktop"}
+  ]
+}
+```
+
+---
+
+## 7. 健康检查
 **方法:** GET  
 **URL:** `http://127.0.0.1:9880/api/health`
 
@@ -194,9 +210,13 @@ class APIServerThread(QThread):
         self.config_manager = config_manager
         self.server = None
         self.is_running = False
-        
-        # 设置日志回调
-        api.set_log_callback(self.on_api_log)
+        self.api_module = None
+
+    def get_api_module(self):
+        if self.api_module is None:
+            self.api_module = importlib.import_module('core.api')
+            self.api_module.set_log_callback(self.on_api_log)
+        return self.api_module
 
     def on_api_log(self, msg):
         """API 日志回调"""
@@ -204,11 +224,12 @@ class APIServerThread(QThread):
 
     def run(self):
         try:
+            api_module = self.get_api_module()
             # 设置 API 全局变量
-            api.set_globals(self.model, self.config_manager)
+            api_module.set_globals(self.model, self.config_manager)
             
             # 创建服务器
-            self.server = make_server(self.host, self.port, api.app)
+            self.server = make_server(self.host, self.port, api_module.app)
             self.is_running = True
             self.started_signal.emit()
             self.log_signal.emit(f"🚀 API Server started at http://{self.host}:{self.port}")
@@ -252,7 +273,7 @@ class APIPageInterface(QWidget):
         
         # 标题和文档按钮
         title_layout = QHBoxLayout()
-        title = SubtitleLabel("🔌 API 服务(SillyTavern / OpenAI TTS 兼容)")
+        title = SubtitleLabel("API 服务(SillyTavern / OpenAI TTS 兼容)")
         title_layout.addWidget(title)
         title_layout.addStretch()
         
@@ -274,12 +295,12 @@ class APIPageInterface(QWidget):
         
         # 角色列表部分
         list_header_layout = QHBoxLayout()
-        char_title = SubtitleLabel("📋 角色列表")
+        char_title = SubtitleLabel("角色列表")
         list_header_layout.addWidget(char_title)
         list_header_layout.addStretch()
         
         # 手动刷新按钮
-        refresh_btn = PushButton("🔄 刷新列表")
+        refresh_btn = PushButton("刷新列表")
         refresh_btn.setIcon(FluentIcon.SYNC)
         refresh_btn.clicked.connect(self.refresh_character_list)
         list_header_layout.addWidget(refresh_btn)
@@ -328,7 +349,7 @@ class APIPageInterface(QWidget):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(20, 20, 20, 20)
         
-        log_title = SubtitleLabel("📝 运行日志")
+        log_title = SubtitleLabel("运行日志")
         right_layout.addWidget(log_title)
         
         self.log_view = TextEdit(self)
@@ -501,7 +522,7 @@ class APIPageInterface(QWidget):
         self.start_btn.setEnabled(True)
         self.start_btn.setText("停止服务")
         self.start_btn.setIcon(FluentIcon.PAUSE)
-        self.status_label.setText("状态: 🟢 运行中")
+        self.status_label.setText("状态: 运行中")
         
         # 5秒后自动刷新一次角色列表
         auto_refresh_timer = QTimer(self)
@@ -524,7 +545,7 @@ class APIPageInterface(QWidget):
         self.start_btn.setEnabled(True)
         self.start_btn.setText("启动服务")
         self.start_btn.setIcon(FluentIcon.PLAY)
-        self.status_label.setText("状态: 🔴 已停止")
+        self.status_label.setText("状态: 已停止")
         self.port_spin.setEnabled(True)
         self.log_received.emit("API Server stopped.")
 
@@ -532,7 +553,7 @@ class APIPageInterface(QWidget):
         self.start_btn.setEnabled(True)
         self.start_btn.setText("启动服务")
         self.start_btn.setIcon(FluentIcon.PLAY)
-        self.status_label.setText("状态: ⚠️ 错误")
+        self.status_label.setText("状态: 错误")
         self.port_spin.setEnabled(True)
         
         InfoBar.error(
