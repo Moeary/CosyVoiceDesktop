@@ -2,7 +2,9 @@ import sys
 import io
 import threading
 import logging
+import importlib
 import requests
+import uvicorn
 from datetime import datetime
 
 from PyQt5.QtWidgets import (
@@ -18,8 +20,6 @@ from qfluentwidgets import (
 )
 
 from core.worker import ModelLoaderThread
-from werkzeug.serving import make_server
-from core import api
 
 class APIDocDialog(MessageBoxBase):
     """API 文档对话框"""
@@ -30,13 +30,12 @@ class APIDocDialog(MessageBoxBase):
         
         self.doc_text = TextEdit(self)
         self.doc_text.setReadOnly(True)
-        self.doc_text.setMarkdown("""# CosyVoice3 API 文档
+        self.doc_text.setMarkdown("""# CosyVoice API 文档
 
-## 1. 酒馆标准 TTS 端点
+## 1. SillyTavern 兼容 TTS
 **方法:** POST  
 **URL:** `http://127.0.0.1:9880/`
 
-**请求体:**
 ```json
 {
   "text": "要生成的文本",
@@ -45,54 +44,115 @@ class APIDocDialog(MessageBoxBase):
 }
 ```
 
-**返回:** WAV 音频文件
+**返回:** `audio/wav`
 
 ---
 
-## 2. 获取角色列表
+## 2. SillyTavern 角色列表
 **方法:** GET  
 **URL:** `http://127.0.0.1:9880/speakers`
 
-**返回:**
 ```json
 [
-  {"name": "角色名", "voice_id": "角色名"},
-  ...
+  {"name": "角色名", "voice_id": "角色名"}
 ]
 ```
 
 ---
 
-## 3. 标准 API 端点
+## 3. OpenAI 兼容 TTS
 **方法:** POST  
-**URL:** `http://127.0.0.1:9880/api/tts`
+**URL:** `http://127.0.0.1:9880/v1/audio/speech`
 
-**请求体:**
 ```json
 {
-  "text": "要生成的文本",
-  "character_name": "角色名称",
-  "mode": "零样本复制|精细控制|指令控制",
-  "speed": 1.0
+  "model": "cosyvoice-openai-tts",
+  "input": "要生成的文本",
+  "voice": "角色名称",
+  "instructions": "可选，附加语气/风格指令",
+  "speed": 1.0,
+  "response_format": "mp3"
 }
 ```
 
-**返回:** WAV 音频文件
+**返回:** `mp3/wav/flac/aac/opus/pcm`
 
 ---
 
-## 4. 健康检查
+## 4. OpenAI 兼容角色列表扩展
 **方法:** GET  
-**URL:** `http://127.0.0.1:9880/api/health`
+**URL:** `http://127.0.0.1:9880/v1/audio/voices`
 
-**返回:**
+---
+
+## 5. OpenAI 兼容模型列表
+**方法:** GET  
+**URL:** `http://127.0.0.1:9880/v1/models`
+
+---
+
+## 6. CosyVoice 原生 JSON 接口
+**方法:** POST  
+**URL:** `http://127.0.0.1:9880/cosyvoice/speech`
+
 ```json
 {
-  "status": "ok",
-  "model": "CosyVoice3-0.5B",
-  "characters": ["角色1", "角色2", ...]
+  "text": "要生成的文本",
+  "profile": "可选，本地预设名",
+  "mode": "zero_shot",
+  "prompt_audio_path": "D:/voices/demo.wav",
+  "prompt_text": "这是参考音频对应的文本",
+  "instruct_text": "用温柔平静的语气朗读",
+  "speed": 1.0,
+  "response_format": "wav"
 }
 ```
+
+**模式说明**
+- `zero_shot`: 语音克隆，需要 `prompt_audio_path/prompt_audio + prompt_text`
+- `cross_lingual`: 精细控制，需要 `prompt_audio_path/prompt_audio`
+- `instruct`: 指令模式，需要 `prompt_audio_path/prompt_audio + instruct_text`
+
+---
+
+## 7. CosyVoice 原生上传接口
+**方法:** POST  
+**URL:** `http://127.0.0.1:9880/cosyvoice/speech/upload`
+
+**Content-Type:** `multipart/form-data`
+
+**文件字段:** `prompt_audio`
+
+---
+
+## 8. CosyVoice 原生元信息
+**方法:** GET  
+**URL:** `http://127.0.0.1:9880/cosyvoice/meta`
+
+---
+
+## 9. CosyVoice 本地预设列表
+**方法:** GET  
+**URL:** `http://127.0.0.1:9880/cosyvoice/profiles`
+
+---
+
+## 10. 健康检查
+**方法:** GET  
+**URL:** `http://127.0.0.1:9880/health`
+
+---
+
+## 11. 兼容旧路径
+以下旧路径仍然可用，但不会出现在 FastAPI 文档中：
+
+- `/api/tts`
+- `/api/characters`
+- `/api/tts/cosyvoice`
+- `/api/v1/tts/cosyvoice`
+- `/api/tts/cosyvoice/meta`
+- `/api/v1/tts/cosyvoice/meta`
+- `/api/health`
 """)
         self.doc_text.setMinimumSize(600, 400)
         self.viewLayout.addWidget(self.doc_text)
@@ -158,9 +218,13 @@ class APIServerThread(QThread):
         self.config_manager = config_manager
         self.server = None
         self.is_running = False
-        
-        # 设置日志回调
-        api.set_log_callback(self.on_api_log)
+        self.api_module = None
+
+    def get_api_module(self):
+        if self.api_module is None:
+            self.api_module = importlib.import_module('core.api')
+            self.api_module.set_log_callback(self.on_api_log)
+        return self.api_module
 
     def on_api_log(self, msg):
         """API 日志回调"""
@@ -168,17 +232,23 @@ class APIServerThread(QThread):
 
     def run(self):
         try:
+            api_module = self.get_api_module()
             # 设置 API 全局变量
-            api.set_globals(self.model, self.config_manager)
-            
-            # 创建服务器
-            self.server = make_server(self.host, self.port, api.app)
+            api_module.set_globals(self.model, self.config_manager)
+
+            config = uvicorn.Config(
+                api_module.app,
+                host=self.host,
+                port=self.port,
+                log_config=None,
+                access_log=False,
+            )
+            self.server = uvicorn.Server(config)
+            self.server.install_signal_handlers = lambda: None
             self.is_running = True
             self.started_signal.emit()
             self.log_signal.emit(f"🚀 API Server started at http://{self.host}:{self.port}")
-            
-            # 启动服务循环
-            self.server.serve_forever()
+            self.server.run()
             
         except Exception as e:
             self.error_signal.emit(str(e))
@@ -189,7 +259,7 @@ class APIServerThread(QThread):
 
     def stop(self):
         if self.server:
-            self.server.shutdown()
+            self.server.should_exit = True
 
 class APIPageInterface(QWidget):
     """API 服务管理界面"""
@@ -216,7 +286,7 @@ class APIPageInterface(QWidget):
         
         # 标题和文档按钮
         title_layout = QHBoxLayout()
-        title = SubtitleLabel("🔌 API 服务(SillyTavern适配)")
+        title = SubtitleLabel("API 服务(SillyTavern / OpenAI / CosyVoice Native)")
         title_layout.addWidget(title)
         title_layout.addStretch()
         
@@ -238,12 +308,12 @@ class APIPageInterface(QWidget):
         
         # 角色列表部分
         list_header_layout = QHBoxLayout()
-        char_title = SubtitleLabel("📋 角色列表")
+        char_title = SubtitleLabel("角色列表")
         list_header_layout.addWidget(char_title)
         list_header_layout.addStretch()
         
         # 手动刷新按钮
-        refresh_btn = PushButton("🔄 刷新列表")
+        refresh_btn = PushButton("刷新列表")
         refresh_btn.setIcon(FluentIcon.SYNC)
         refresh_btn.clicked.connect(self.refresh_character_list)
         list_header_layout.addWidget(refresh_btn)
@@ -292,7 +362,7 @@ class APIPageInterface(QWidget):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(20, 20, 20, 20)
         
-        log_title = SubtitleLabel("📝 运行日志")
+        log_title = SubtitleLabel("运行日志")
         right_layout.addWidget(log_title)
         
         self.log_view = TextEdit(self)
@@ -465,7 +535,7 @@ class APIPageInterface(QWidget):
         self.start_btn.setEnabled(True)
         self.start_btn.setText("停止服务")
         self.start_btn.setIcon(FluentIcon.PAUSE)
-        self.status_label.setText("状态: 🟢 运行中")
+        self.status_label.setText("状态: 运行中")
         
         # 5秒后自动刷新一次角色列表
         auto_refresh_timer = QTimer(self)
@@ -488,7 +558,7 @@ class APIPageInterface(QWidget):
         self.start_btn.setEnabled(True)
         self.start_btn.setText("启动服务")
         self.start_btn.setIcon(FluentIcon.PLAY)
-        self.status_label.setText("状态: 🔴 已停止")
+        self.status_label.setText("状态: 已停止")
         self.port_spin.setEnabled(True)
         self.log_received.emit("API Server stopped.")
 
@@ -496,7 +566,7 @@ class APIPageInterface(QWidget):
         self.start_btn.setEnabled(True)
         self.start_btn.setText("启动服务")
         self.start_btn.setIcon(FluentIcon.PLAY)
-        self.status_label.setText("状态: ⚠️ 错误")
+        self.status_label.setText("状态: 错误")
         self.port_spin.setEnabled(True)
         
         InfoBar.error(

@@ -2,7 +2,38 @@ import os
 import sys
 import gc
 import subprocess
+import tempfile
 from typing import List, Optional
+
+
+def _patch_ruamel_loader_compat():
+    """Compat for HyperPyYAML on newer ruamel.yaml Loader implementations."""
+    try:
+        import ruamel.yaml
+    except ImportError:
+        return
+
+    for loader_name in ("Loader", "SafeLoader", "RoundTripLoader", "FullLoader"):
+        loader_cls = getattr(ruamel.yaml, loader_name, None)
+        if loader_cls is not None and not hasattr(loader_cls, "max_depth"):
+            loader_cls.max_depth = None
+
+
+def _ensure_usable_temp_dir():
+    """Ensure Python and third-party libs have a writable temp directory."""
+    try:
+        tempfile.gettempdir()
+        return
+    except FileNotFoundError:
+        pass
+
+    fallback_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "runtime_tmp"))
+    os.makedirs(fallback_dir, exist_ok=True)
+    os.environ["TMP"] = fallback_dir
+    os.environ["TEMP"] = fallback_dir
+    os.environ["TMPDIR"] = fallback_dir
+    tempfile.tempdir = fallback_dir
+
 
 def load_cosyvoice_model():
     """加载CosyVoice模型的工具函数"""
@@ -39,7 +70,9 @@ def load_cosyvoice_model():
         sys.path.insert(0, matcha_path)
     if root_path not in sys.path:
         sys.path.insert(0, root_path)
-        
+
+    _ensure_usable_temp_dir()
+    _patch_ruamel_loader_compat()
     from cosyvoice.cli.cosyvoice import AutoModel
     
     print(f"正在从以下路径加载模型:\n - CosyVoice: {model_dir}\n - WeText: {wetext_dir}")

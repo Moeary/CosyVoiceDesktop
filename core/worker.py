@@ -1,8 +1,6 @@
 import sys
 import os
-import torch
 import random
-import torchaudio
 from typing import List, Optional
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -78,6 +76,29 @@ class ModelDownloadThread(QThread):
     def on_log(self, message):
         self.log.emit(message)
 
+
+class RoleAssignmentWorker(QThread):
+    """后台角色分配线程"""
+    success = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, config_manager, segments, document_text, voice_configs):
+        super().__init__()
+        self.config_manager = config_manager
+        self.segments = segments
+        self.document_text = document_text
+        self.voice_configs = voice_configs
+
+    def run(self):
+        try:
+            from .role_assigner import RoleAssignmentService
+
+            service = RoleAssignmentService(self.config_manager)
+            result = service.assign_roles(self.segments, self.document_text, self.voice_configs)
+            self.success.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
 class AudioGenerationWorker(QThread):
     """音频生成工作线程"""
     progress = pyqtSignal(str)  # 日志消息
@@ -99,6 +120,9 @@ class AudioGenerationWorker(QThread):
     
     def run(self):
         try:
+            import torch
+            import torchaudio
+
             # 如果没有模型，先加载
             if self.cosyvoice is None:
                 self.progress.emit("📦 正在加载CosyVoice模型...")

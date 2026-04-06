@@ -89,11 +89,11 @@ class VoiceSettingsInterface(QWidget):
         self.load_button.clicked.connect(self.load_config)
         button_layout.addWidget(self.load_button)
         
-        self.save_button = PushButton("💾 保存配置")
+        self.save_button = PushButton("保存配置")
         self.save_button.clicked.connect(self.save_config)
         button_layout.addWidget(self.save_button)
         
-        self.apply_button = PrimaryPushButton("✅ 应用配置")
+        self.apply_button = PrimaryPushButton("应用配置")
         self.apply_button.clicked.connect(self.apply_config)
         button_layout.addWidget(self.apply_button)
         
