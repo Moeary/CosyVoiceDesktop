@@ -13,7 +13,7 @@
 - 本地 TTS API：兼容 OpenAI TTS 风格接口,并提供酒馆以及 CosyVoice 原生接口。
 - 模型下载与配置记忆：路径、项目、角色配置自动持久化。
 
-## 📸 界面示例
+## 界面示例
 
 - ![主界面预览](https://raw.githubusercontent.com/Moeary/pic_bed/main/img/202510071209350.png)
 - ![语音配置面板](https://raw.githubusercontent.com/Moeary/pic_bed/main/img/202510071208054.png)
