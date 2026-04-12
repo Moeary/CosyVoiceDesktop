@@ -37,6 +37,8 @@ class CosyVoiceProApp(FluentWindow):
         self.model_loader_thread = None
         self.model_unloader_thread = None
         self.role_assign_worker = None
+        self._model_load_success_callbacks = []
+        self._model_load_error_callbacks = []
         
         # Qt5 Audio Setup
         self.media_player = QMediaPlayer()
@@ -236,6 +238,49 @@ class CosyVoiceProApp(FluentWindow):
         # 确保初始配置被应用
         self.apply_voice_settings()
 
+    def is_model_loading(self) -> bool:
+        return self.model_loader_thread is not None and self.model_loader_thread.isRunning()
+
+    def request_model_load(self, success_callback=None, error_callback=None) -> bool:
+        """确保 GUI 内只存在一个模型加载线程。"""
+        if self.cosyvoice_model is not None:
+            if success_callback:
+                success_callback(self.cosyvoice_model)
+            return False
+
+        if success_callback and success_callback not in self._model_load_success_callbacks:
+            self._model_load_success_callbacks.append(success_callback)
+        if error_callback and error_callback not in self._model_load_error_callbacks:
+            self._model_load_error_callbacks.append(error_callback)
+
+        if self.is_model_loading():
+            return False
+
+        self.model_loader_thread = ModelLoaderThread()
+        self.model_loader_thread.success.connect(self._handle_model_load_success)
+        self.model_loader_thread.error.connect(self._handle_model_load_error)
+        self.model_loader_thread.finished.connect(self._cleanup_model_loader_thread)
+        self.model_loader_thread.start()
+        return True
+
+    def _handle_model_load_success(self, model):
+        self.cosyvoice_model = model
+        callbacks = list(self._model_load_success_callbacks)
+        self._model_load_success_callbacks.clear()
+        self._model_load_error_callbacks.clear()
+        for callback in callbacks:
+            callback(model)
+
+    def _handle_model_load_error(self, error_msg):
+        callbacks = list(self._model_load_error_callbacks)
+        self._model_load_success_callbacks.clear()
+        self._model_load_error_callbacks.clear()
+        for callback in callbacks:
+            callback(error_msg)
+
+    def _cleanup_model_loader_thread(self):
+        self.model_loader_thread = None
+
     def apply_voice_settings(self):
         """应用语音设置"""
         configs = self.voice_interface.get_voice_configs()
@@ -420,12 +465,20 @@ class CosyVoiceProApp(FluentWindow):
                 parent=self
             )
             return
-        
-        # 创建并启动模型加载线程
-        self.model_loader_thread = ModelLoaderThread()
-        self.model_loader_thread.success.connect(self.on_model_loaded_success)
-        self.model_loader_thread.error.connect(self.on_model_loaded_error)
-        self.model_loader_thread.start()
+
+        if self.is_model_loading():
+            InfoBar.warning(
+                title='正在加载',
+                content='CosyVoice 模型正在加载中，请稍候。',
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+
+        self.request_model_load(self.on_model_loaded_success, self.on_model_loaded_error)
     
     def on_model_loaded_success(self, model):
         """模型加载成功"""
@@ -766,13 +819,8 @@ class CosyVoiceProApp(FluentWindow):
         
         if not auto_load:
             return
-        
-        # 从 utils 模块加载函数
-        from core.utils import load_cosyvoice_model
-        
-        try:
-            self.cosyvoice_model = load_cosyvoice_model()
-            # 显示成功提示
+
+        def _show_success(_model):
             InfoBar.success(
                 title='模型加载成功',
                 content="CosyVoice 模型已加载，现在可以生成语音了",
@@ -782,14 +830,17 @@ class CosyVoiceProApp(FluentWindow):
                 duration=3000,
                 parent=self
             )
-        except Exception as e:
-            print(f"❌ Failed to load model: {e}")
+
+        def _show_error(error_msg):
+            print(f"❌ Failed to load model: {error_msg}")
             InfoBar.warning(
                 title='模型加载失败',
-                content=f"未能加载 CosyVoice 模型，请检查模型文件",
+                content="未能加载 CosyVoice 模型，请检查模型文件",
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
                 duration=3000,
                 parent=self
             )
+
+        self.request_model_load(_show_success, _show_error)

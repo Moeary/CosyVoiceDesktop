@@ -19,8 +19,6 @@ from qfluentwidgets import (
     MessageBoxBase, TextEdit, isDarkTheme
 )
 
-from core.worker import ModelLoaderThread
-
 class APIDocDialog(MessageBoxBase):
     """API 文档对话框"""
     def __init__(self, parent=None):
@@ -455,18 +453,18 @@ class APIPageInterface(QWidget):
                     self.main_window.cosyvoice_model = self.main_window.current_worker.cosyvoice
                 
                 if self.main_window.cosyvoice_model is None:
-                    # 自动加载模型
-                    self.log_received.emit("🔄 检测到模型未加载，正在自动加载模型...")
+                    if self.main_window.is_model_loading():
+                        self.log_received.emit("🔄 模型正在加载中，完成后将自动启动 API 服务...")
+                    else:
+                        self.log_received.emit("🔄 检测到模型未加载，正在自动加载模型...")
                     self.start_btn.setEnabled(False)
                     self.start_btn.setText("正在加载模型...")
-                    
-                    # 连接模型加载信号
-                    # 注意：这里需要小心信号连接，避免重复连接
+
                     try:
-                        self.main_window.model_loader_thread = ModelLoaderThread()
-                        self.main_window.model_loader_thread.success.connect(self.on_auto_load_model_success)
-                        self.main_window.model_loader_thread.error.connect(self.on_auto_load_model_error)
-                        self.main_window.model_loader_thread.start()
+                        self.main_window.request_model_load(
+                            self.on_auto_load_model_success,
+                            self.on_auto_load_model_error
+                        )
                     except Exception as e:
                         self.log_received.emit(f"❌ 自动加载模型失败: {str(e)}")
                         self.start_btn.setEnabled(True)
