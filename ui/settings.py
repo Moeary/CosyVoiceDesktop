@@ -145,6 +145,17 @@ class SettingsInterface(QWidget):
         auto_cast_layout.addWidget(self.llm_auto_cast_switch)
         layout.addLayout(auto_cast_layout)
 
+        interactive_layout = QHBoxLayout()
+        interactive_label = BodyLabel("分角后先确认角色名单（可提意见重新分配，再生成角色表；进度可断点续跑）")
+        self.llm_interactive_switch = SwitchButton()
+        self.llm_interactive_switch.checkedChanged.connect(
+            lambda checked: self.config_manager.set("llm_agent_interactive", checked)
+        )
+        interactive_layout.addWidget(interactive_label)
+        interactive_layout.addStretch()
+        interactive_layout.addWidget(self.llm_interactive_switch)
+        layout.addLayout(interactive_layout)
+
         self.default_speaker_edit = self.create_line_setting(
             layout,
             "默认角色名称",
@@ -228,6 +239,7 @@ class SettingsInterface(QWidget):
         self.llm_auto_apply_switch.blockSignals(True)
         self.llm_agent_mode_switch.blockSignals(True)
         self.llm_auto_cast_switch.blockSignals(True)
+        self.llm_interactive_switch.blockSignals(True)
         try:
             auto_load = self.config_manager.get("auto_load_model", False)
             self.auto_load_switch.setChecked(auto_load)
@@ -242,6 +254,7 @@ class SettingsInterface(QWidget):
             self.llm_auto_apply_switch.setChecked(self.config_manager.get("llm_auto_apply", False))
             self.llm_agent_mode_switch.setChecked(self.config_manager.get("llm_agent_mode", True))
             self.llm_auto_cast_switch.setChecked(self.config_manager.get("llm_agent_auto_cast", True))
+            self.llm_interactive_switch.setChecked(self.config_manager.get("llm_agent_interactive", True))
             self.default_speaker_edit.setText(self.config_manager.get("default_speaker_name", ""))
             self.output_path_edit.setText(self.config_manager.get("output_dir", "./output"))
         finally:
@@ -251,6 +264,7 @@ class SettingsInterface(QWidget):
             self.llm_auto_apply_switch.blockSignals(False)
             self.llm_agent_mode_switch.blockSignals(False)
             self.llm_auto_cast_switch.blockSignals(False)
+            self.llm_interactive_switch.blockSignals(False)
 
     def save_settings(self):
         self.config_manager.config.update({
@@ -261,6 +275,7 @@ class SettingsInterface(QWidget):
             "llm_auto_apply": self.llm_auto_apply_switch.isChecked(),
             "llm_agent_mode": self.llm_agent_mode_switch.isChecked(),
             "llm_agent_auto_cast": self.llm_auto_cast_switch.isChecked(),
+            "llm_agent_interactive": self.llm_interactive_switch.isChecked(),
             "default_speaker_name": self.default_speaker_edit.text().strip(),
             "output_dir": self.output_path_edit.text().strip(),
             "auto_load_model": self.auto_load_switch.isChecked(),

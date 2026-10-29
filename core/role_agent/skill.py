@@ -25,6 +25,11 @@ DEFAULT_PARAMS: Dict[str, Any] = {
     'auto_apply_suggestions': False,
     # 校对员的推理强度（none/low/medium/high，空为模型默认）；推理过长会挤占工具调用的输出空间
     'review_reasoning_effort': '',
+    # 标注/校对时新增了角色，校对结束后交给重规划补全档案、合并重复角色，必要时重标受影响的批次
+    'auto_replan': False,
+    'max_replan': 1,
+    # 重规划的推理强度（同 review_reasoning_effort）
+    'replan_reasoning_effort': '',
 }
 
 

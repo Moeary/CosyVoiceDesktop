@@ -15,6 +15,7 @@ class Character(BaseModel):
     gender: Literal['男', '女', '群体', '未知'] = '未知'
     age: Literal['儿童', '少年', '青年', '中年', '老年', '未知'] = '未知'
     traits: str = Field(default='', description="不超过 20 字的身份/性格/嗓音特征")
+    voice_style: str = Field(default='', description="不超过 12 字的说话语气，配音时作为语气指令，如 沉稳低缓、泼辣大嗓门；没有依据留空")
 
 
 class CastPlan(BaseModel):
@@ -48,6 +49,18 @@ class VoiceMapping(BaseModel):
 
 class VoiceCasting(BaseModel):
     mappings: List[VoiceMapping] = Field(description="每个角色一条")
+
+
+# ---------- Librarian：角色 → 参考音频目录里的说话人 ----------
+
+class LibraryPick(BaseModel):
+    character: str
+    voice_id: str = Field(description="必须是 voices 中的 id；没有合适的留空")
+    reason: str = ''
+
+
+class LibraryCasting(BaseModel):
+    picks: List[LibraryPick] = Field(description="每个角色一条")
 
 
 # ---------- Reviewer：ReAct 工具 ----------
@@ -86,7 +99,7 @@ class ApplySuggestions(BaseModel):
 
 
 class AddCharacter(BaseModel):
-    """向角色表添加漏掉的角色。"""
+    """向角色表添加漏掉的角色。校对结束后选角导演会补全其年龄、语气并重标相关批次。"""
     name: str
     aliases: List[str] = Field(default_factory=list)
     gender: Literal['男', '女', '群体', '未知'] = '未知'
@@ -105,3 +118,13 @@ class Finish(BaseModel):
 
 
 REVIEW_TOOLS = [ReadSegments, SearchText, GetRoster, Relabel, ApplySuggestions, AddCharacter, MergeCharacter, Finish]
+
+
+# ---------- Replanner：按用户意见或校对结果修订角色表 ----------
+
+class RosterRevision(BaseModel):
+    characters: List[Character] = Field(description="修订后的完整角色表；没有改动的角色原样保留")
+    relabels: List[LabelUpdate] = Field(default_factory=list, description="意见里点名的片段改动（有编号或能唯一定位的台词）")
+    recheck: List[str] = Field(default_factory=list, description="台词归属需要重新判断的角色规范名：新增、拆分或身份变化的角色")
+    notes: str = Field(default='', description="更新后给标注员的注意事项，不超过 120 字")
+    reply: str = Field(default='', description="一句话告诉用户这次改了什么")

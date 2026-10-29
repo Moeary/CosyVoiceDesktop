@@ -402,3 +402,24 @@ class VoiceSettingsInterface(QWidget):
     
     def get_voice_configs(self) -> Dict[str, VoiceConfig]:
         return {config.name: config for config in self.voice_configs}
+
+    def merge_role_table(self, rows: List[dict], file_path: str) -> List[str]:
+        """追加 AI 生成的角色表（已有同名配置保留不动），另存为角色表文件并应用。返回新增的配置名。"""
+        existing = {config.name for config in self.voice_configs}
+        added = []
+        for row in rows:
+            if row['name'] in existing:
+                continue
+            self.voice_configs.append(VoiceConfig(
+                name=row['name'], mode=row['mode'], prompt_text=row.get('prompt_text', ''),
+                prompt_audio=row.get('prompt_audio', ''), instruct_text=row.get('instruct_text', ''),
+                color=row.get('color', '#FFFF00'),
+            ))
+            added.append(row['name'])
+        self.update_table()
+        os.makedirs(os.path.dirname(file_path) or '.', exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump([config.to_dict() for config in self.voice_configs], f, ensure_ascii=False, indent=2)
+        self.config_manager.set("voice_config_path", file_path)
+        self.config_loaded.emit()
+        return added

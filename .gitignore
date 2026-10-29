@@ -67,6 +67,8 @@ Qwen3-TTS/*
 
 .env
 evals/role_assign/reports/
+# 分角会话检查点（LangGraph SQLite）
+cache/
 .gitignore
 CosyVoiceDesktop_V1.1.7z
 CosyVoiceDesktop_V1.1.7z.baiduyun.uploading.cfg

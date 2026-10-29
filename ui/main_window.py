@@ -4,7 +4,7 @@ import datetime
 import gc
 from typing import List, Optional
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtCore import Qt, QUrl, QTimer, pyqtSignal, QThread
 from PyQt5.QtGui import QIcon, QDesktopServices
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
@@ -15,7 +15,10 @@ from qfluentwidgets import (
 )
 
 from core.models import TaskSegment
-from core.worker import AudioGenerationWorker, ModelLoaderThread, ModelUnloaderThread, RoleAssignmentWorker
+from core.worker import (
+    AudioGenerationWorker, ModelLoaderThread, ModelUnloaderThread, RoleAgentSessionWorker, RoleAssignmentWorker,
+    RoleTableWorker,
+)
 from core.utils import merge_audio_files
 from core.config_manager import ConfigManager
 
@@ -37,7 +40,13 @@ class CosyVoiceProApp(FluentWindow):
         self.model_loader_thread = None
         self.model_unloader_thread = None
         self.role_assign_worker = None
-        
+        # 交互式分角会话：服务、会话、编辑器分段、名单轮次、最终结果
+        self.role_service = None
+        self.role_session = None
+        self.role_segments = []
+        self.role_round = 0
+        self.role_result = None
+
         # Qt5 Audio Setup
         self.media_player = QMediaPlayer()
         # self.audio_output = QAudioOutput() # Qt5 doesn't need this for simple playback
@@ -261,7 +270,8 @@ class CosyVoiceProApp(FluentWindow):
             return
 
         voice_configs = self.voice_interface.get_voice_configs()
-        if not voice_configs:
+        agent_mode = bool(self.config_manager.get('llm_agent_mode', True))
+        if not voice_configs and not agent_mode:
             InfoBar.warning(
                 title="缺少角色",
                 content="请先在语音设置页面创建角色配置",
@@ -301,6 +311,10 @@ class CosyVoiceProApp(FluentWindow):
                 duration=3000,
                 parent=self
             )
+            return
+
+        if agent_mode and self.config_manager.get('llm_agent_interactive', True):
+            self.start_role_session(document_text, segments)
             return
 
         self.text_interface.ai_assign_button.setEnabled(False)
@@ -369,6 +383,135 @@ class CosyVoiceProApp(FluentWindow):
             duration=3500,
             parent=self
         )
+
+    # ---------- 交互式分角：名单确认 → 意见重跑 → 角色表 ----------
+
+    def _role_busy(self, text: str):
+        self.text_interface.ai_assign_button.setEnabled(False)
+        self.text_interface.ai_assign_button.setText(text)
+
+    def _role_idle(self):
+        self.text_interface.ai_assign_button.setEnabled(True)
+        self.text_interface.ai_assign_button.setText("AI分配角色")
+
+    def _info(self, kind: str, title: str, content: str, duration: int = 4000):
+        getattr(InfoBar, kind)(
+            title=title, content=content, orient=Qt.Horizontal, isClosable=True,
+            position=InfoBarPosition.TOP, duration=duration, parent=self,
+        )
+
+    def start_role_session(self, document_text: str, segments: list):
+        from core.role_assigner import RoleAssignmentError, RoleAssignmentService
+
+        service = RoleAssignmentService(self.config_manager)
+        try:
+            session = service.open_session(document_text)
+        except RoleAssignmentError as e:
+            self.on_role_assignment_error(str(e))
+            return
+        self.role_service, self.role_session = service, session
+        self.role_segments = segments
+        self.role_round = 0
+
+        status = session.status()
+        if status in ('review', 'running'):
+            where = "停在角色名单确认" if status == 'review' else "中途中断了"
+            reply = QMessageBox.question(
+                self, "继续上次的分配",
+                f"这段文本上次的 AI 分角{where}。是否从断点继续？\n选“否”将从头重新分配。",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Cancel:
+                return
+            if reply == QMessageBox.Yes:
+                if status == 'review':
+                    self.show_roster_review(session.pending())
+                else:
+                    self.run_role_session('retry')
+                return
+        self.run_role_session('start', document_text=document_text)
+
+    def run_role_session(self, action: str, document_text: str = '', decision: dict = None):
+        self._role_busy("正在分析..." if action == 'start' else "继续分析...")
+        worker = RoleAgentSessionWorker(
+            self.role_service, self.role_session, action, self.role_segments,
+            self.voice_interface.get_voice_configs(), document_text, decision,
+        )
+        worker.review_ready.connect(self.show_roster_review)
+        worker.finished_result.connect(self.on_role_session_finished)
+        worker.error.connect(self.on_role_session_error)
+        worker.progress.connect(self.text_interface.ai_assign_button.setText)
+        self.role_assign_worker = worker
+        worker.start()
+
+    def show_roster_review(self, payload: dict):
+        from .roster_dialog import RosterReviewDialog
+
+        self._role_idle()
+        self.role_round += 1
+        dialog = RosterReviewDialog(payload, self.role_round, self)
+        if not dialog.exec():
+            self._info('info', "已保存进度", "角色名单尚未确认，再次点击“AI分配角色”可以从这里继续。")
+            return
+        self.run_role_session('resume', decision=dialog.decision())
+
+    def on_role_session_error(self, error_msg: str):
+        self._role_idle()
+        self._info('error', "分配中断", f"{error_msg}\n进度已保存，再次点击“AI分配角色”可以从断点继续。", 6000)
+
+    def on_role_session_finished(self, result: dict):
+        from .roster_dialog import RoleTableDialog
+
+        self.on_role_assignment_success(result)
+        self.role_result = result
+        voice_configs = self.voice_interface.get_voice_configs()
+        dialog = RoleTableDialog(
+            len(result.get('roster') or []), bool(voice_configs),
+            self.config_manager.get('voice_library_dir', ''), self,
+        )
+        if not dialog.exec():
+            return
+        if dialog.choice() == 'library':
+            self.config_manager.set('voice_library_dir', dialog.library_dir())
+
+        self._role_busy("生成角色表...")
+        worker = RoleTableWorker(self.role_service, self.role_session, voice_configs, dialog.choice(), dialog.library_dir())
+        worker.finished_table.connect(self.on_role_table_ready)
+        worker.error.connect(lambda message: (self._role_idle(), self._info('error', "角色表生成失败", message, 6000)))
+        worker.progress.connect(self.text_interface.ai_assign_button.setText)
+        self.role_assign_worker = worker
+        worker.start()
+
+    def on_role_table_ready(self, result: dict):
+        self._role_idle()
+        if result['choice'] != 'existing':
+            project = self.config_manager.get('project_name', 'project') or 'project'
+            path = os.path.join('.', 'config', f"角色表_{project}.json")
+            self.voice_interface.merge_role_table(result['rows'], path)
+
+        assignments = self.role_service.remap_assignments(self.role_result['assignments'], result['mapping'])
+        self.text_interface.clear_ai_assignments()
+        self.text_interface.set_ai_assignments(assignments)
+        applied = self.text_interface.apply_current_ai_assignments(clear_existing=True)
+        unmapped = self.text_interface.get_ai_unmapped_groups()
+
+        if result['choice'] == 'existing':
+            content = f"已按现有音色配置写入 {applied} 个片段的角色标签。"
+        else:
+            content = (
+                f"角色表已生成（{len(result['rows'])} 个角色，{len(result['matched'])} 个自动匹配了参考音频"
+                + (f"，{len(result['reused'])} 个沿用已有配置" if result['reused'] else '')
+                + f"），并写入 {applied} 个片段的角色标签。"
+            )
+            if result['missing']:
+                content += f"{'、'.join(result['missing'][:5])}{'等' if len(result['missing']) > 5 else ''}还缺参考音频，请在语音设置中补全后点击“应用配置”，再一键运行。"
+            else:
+                content += "可以直接一键运行配音。"
+        if unmapped:
+            content += f" 未映射的分组（按默认角色朗读）：{'、'.join(unmapped[:3])}"
+        self._info('success', "角色表就绪", content, 8000)
+        if result['choice'] != 'existing' and result['missing']:
+            self.switchTo(self.voice_interface)
 
     def on_role_assignment_error(self, error_msg: str):
         self.text_interface.ai_assign_button.setEnabled(True)

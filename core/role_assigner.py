@@ -214,7 +214,7 @@ class RoleAssignmentService:
         configured = (self.config_manager.get('default_speaker_name', '') or '').strip()
         if configured in speaker_names:
             return configured
-        return speaker_names[0]
+        return speaker_names[0] if speaker_names else ''
 
     def _match_voice_config(self, raw_speaker: str, speaker_names: List[str]) -> str:
         speaker = (raw_speaker or '').strip()
@@ -357,7 +357,8 @@ class RoleAssignmentService:
             raise RoleAssignmentError("没有可分配的文本内容")
 
         speaker_names = list(voice_configs.keys())
-        if not speaker_names:
+        agent_mode = self.config_manager.get('llm_agent_mode', True)
+        if not speaker_names and not agent_mode:
             raise RoleAssignmentError("请先在语音设置中添加角色配置")
 
         from .role_agent.llm import LLMConfigError, resolve_llm_settings
@@ -368,29 +369,31 @@ class RoleAssignmentService:
 
         fallback_speaker = self._get_default_speaker(speaker_names)
 
-        if self.config_manager.get('llm_agent_mode', True):
+        if agent_mode:
             return self._assign_roles_with_agent(
                 settings, segments, document_text, voice_configs, fallback_speaker, progress
             )
         return self._assign_roles_legacy(settings, segments, document_text, speaker_names, fallback_speaker)
 
-    def _assign_roles_with_agent(self, settings, segments, document_text, voice_configs, fallback_speaker, progress):
-        """LangGraph 智能体：规则断句 → 规划角色表 → 分批标注 → 校验 → ReAct 校对 → 选角"""
+    @staticmethod
+    def _voice_config_dicts(voice_configs: Dict[str, Any]) -> List[dict]:
+        dicts = []
+        for name, config in (voice_configs or {}).items():
+            data = config.to_dict() if hasattr(config, 'to_dict') else dict(config or {})
+            data['name'] = name
+            dicts.append(data)
+        return dicts
+
+    def _build_agent(self, settings=None, progress=None):
         from .role_agent import RoleAgent
+        from .role_agent.llm import LLMConfigError, resolve_llm_settings
         from .role_agent.skill import SkillError, load_skill
 
         try:
+            settings = settings or resolve_llm_settings(self.config_manager)
             skill = load_skill(self.config_manager.get('llm_agent_skill_path', '') or None)
-        except SkillError as e:
+        except (LLMConfigError, SkillError) as e:
             raise RoleAssignmentError(str(e)) from e
-
-        speaker_names = list(voice_configs.keys())
-        voice_config_dicts = []
-        for name, config in voice_configs.items():
-            data = config.to_dict() if hasattr(config, 'to_dict') else dict(config or {})
-            data['name'] = name
-            voice_config_dicts.append(data)
-
         agent = RoleAgent(
             settings,
             progress=progress,
@@ -399,11 +402,97 @@ class RoleAssignmentService:
             auto_cast=bool(self.config_manager.get('llm_agent_auto_cast', True)),
             skill=skill,
         )
+        return agent, skill, settings
+
+    # ---------- 交互式会话：分角 → 用户确认名单（可提意见重跑）→ 角色表 ----------
+
+    def open_session(self, document_text: str, checkpointer=None):
+        """按文本 + Skill 哈希打开（或续上）一个可暂停的分角会话，进度保存在 cache/ 下的 SQLite 检查点。"""
+        from .role_agent.session import RoleAgentSession, open_checkpointer, thread_id_for
+
+        agent, skill, _ = self._build_agent()
+        return RoleAgentSession(
+            agent,
+            checkpointer or open_checkpointer(),
+            thread_id_for(self._build_document_text(document_text), skill.digest),
+        )
+
+    def session_result(self, session, segments: List[dict], voice_configs: Dict[str, Any]) -> dict:
+        """把会话的最终状态整理成与 assign_roles 相同的结果结构。"""
+        speaker_names = list((voice_configs or {}).keys())
+        agent = session.agent
+        return self._agent_result(
+            session.state, agent, agent.skill, agent.settings, segments, speaker_names, self._get_default_speaker(speaker_names),
+        )
+
+    def cast_to_existing(self, session, voice_configs: Dict[str, Any]) -> Dict[str, dict]:
+        """名单确认后再按需把角色映射到已有的本地音色配置（原有的自动选角）。"""
+        speaker_names = list(voice_configs.keys())
+        state = dict(session.state)
+        state['voice_configs'] = self._voice_config_dicts(voice_configs)
+        state['fallback_speaker'] = self._get_default_speaker(speaker_names)
+        return session.agent.cast_voices(state).get('voice_mapping', {})
+
+    def build_role_table(self, state: dict, voice_configs: Dict[str, Any], library_dir: str = '',
+                         llm=None, skill=None, usage=None, progress=None) -> dict:
+        """为名单里有台词的角色生成角色表；给了参考音频目录时自动挑选参考音频与参考文本。"""
+        from .role_agent.graph import character_stats
+        from .role_agent.role_table import (
+            best_clip_per_speaker, build_role_table, match_characters, scan_voice_library, speaker_to_config,
+        )
+
+        stats = character_stats(state['roster'], state['labels'], state['segments'])
+        characters = sorted(
+            ({**c, 'lines': stats[c['name']]['lines']} for c in state['roster'] if stats[c['name']]['lines']),
+            key=lambda c: -c['lines'],
+        )
+        speaker_names = list((voice_configs or {}).keys())
+        configured = (self.config_manager.get('default_speaker_name', '') or '').strip()
+        narrator_config = configured if configured in speaker_names else ''
+        speakers = {label['speaker'] for label in state['labels'].values()}
+        include_system = '系统' in speakers and bool(skill and skill.params.get('cast_system_speaker'))
+
+        voices, matches = {}, {}
+        if library_dir:
+            if progress:
+                progress("扫描参考音频目录...")
+            voices = best_clip_per_speaker(scan_voice_library(library_dir))
+            matches = match_characters(
+                characters, voices, llm=llm, usage=usage,
+                prompt=(skill.prompts.get('librarian', '') if skill else ''), progress=progress,
+            )
+
+        rows = build_role_table(characters, matches, voices, narrator_config, include_system, speaker_names)
+        existing = set(speaker_names)
+        return {
+            'rows': rows,
+            'mapping': speaker_to_config(rows, narrator_config),
+            'library_voices': len(voices),
+            'matched': [row['name'] for row in rows if row['prompt_audio'] and row['name'] not in existing],
+            'missing': [row['name'] for row in rows if not row['prompt_audio'] and row['name'] not in existing],
+            'reused': [row['name'] for row in rows if row['name'] in existing],
+        }
+
+    @staticmethod
+    def remap_assignments(assignments: List[dict], mapping: Dict[str, str]) -> List[dict]:
+        """按 说话人 → 配置名 改写每段的建议配置，角色控制台据此自动映射。"""
+        remapped = []
+        for item in assignments:
+            voice = mapping.get(item.get('speaker_label') or item.get('speaker') or '', '')
+            remapped.append({**item, 'suggested_voice': voice or item.get('suggested_voice', '')})
+        return remapped
+
+    def _assign_roles_with_agent(self, settings, segments, document_text, voice_configs, fallback_speaker, progress):
+        """LangGraph 智能体（一次跑完，不暂停）：规则断句 → 规划角色表 → 分批标注 → 校验 → ReAct 校对 → 选角"""
+        agent, skill, settings = self._build_agent(settings, progress)
+        speaker_names = list(voice_configs.keys())
         try:
-            state = agent.run(document_text, voice_config_dicts, fallback_speaker)
+            state = agent.run(document_text, self._voice_config_dicts(voice_configs), fallback_speaker)
         except Exception as e:
             raise RoleAssignmentError(f"智能体运行失败: {e}") from e
+        return self._agent_result(state, agent, skill, settings, segments, speaker_names, fallback_speaker)
 
+    def _agent_result(self, state, agent, skill, settings, segments, speaker_names, fallback_speaker) -> dict:
         voice_mapping = state.get('voice_mapping', {})
         source_segments = []
         for segment in state['segments']:

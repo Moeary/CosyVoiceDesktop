@@ -1,29 +1,34 @@
 """基于 LangGraph 的小说角色分配智能体。
 
-流程（Plan-and-Execute + ReAct 校对）：
-    segment      规则断句，得到带原文偏移量的片段
-    plan_cast    Planner：通读全文，建立角色表（规范名/别名/性别/年龄/特征）与叙述视角
-    label_chunk  Executor：按批次给片段编号打标签（类别 + 说话人），循环直到所有批次完成
-    validate     确定性校验：漏标、未识别说话人、引号内被标旁白、提示语指向不一致、群体说单人台词、
-                 低置信度、别名归一；能从提示语确定说话人时附修正建议；收尾时移除从未发言的角色
-    review_agent ReAct 校对员：带着问题清单调用工具查上下文、改标签、补/并角色
-    review_tools 执行校对员的工具调用
-    cast_voices  把角色映射到本地音色配置（规则匹配优先，其余由 LLM 按性别/年龄/特征选角）
+流程（Plan-and-Execute + ReAct 校对 + 重规划 + 人工确认）：
+    segment       规则断句，得到带原文偏移量的片段
+    plan_cast     Planner：通读全文，建立角色表（规范名/别名/性别/年龄/特征/语气）与叙述视角
+    label_chunk   Executor：按批次队列给片段编号打标签（类别 + 说话人），直到队列清空
+    validate      确定性校验：漏标、未识别说话人、引号内被标旁白、提示语指向不一致、群体说单人台词、
+                  低置信度、别名归一；能从提示语确定说话人时附修正建议；收尾时移除从未发言的角色
+    review_agent  ReAct 校对员：带着问题清单调用工具查上下文、改标签、补/并角色
+    review_tools  执行校对员的工具调用
+    replan_cast   重规划：校对员/标注员新增了角色，或用户提出意见时，修订角色表并只重标受影响的批次
+    roster_review 人工确认（interactive）：暂停并交出角色名单，用户确认或提出意见后继续
+    cast_voices   可选：把角色映射到已有的本地音色配置（没有音色配置时跳过）
 
+interactive 模式需要 checkpointer（见 session.py），中途失败可以从最近的检查点续跑。
 各节点的提示词与阈值来自 skills/novel-role-assign/SKILL.md（见 skill.py）。
 """
 
 import json
 import operator
+import re
 from typing import Annotated, Any, Callable, Dict, List, Optional, TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
 from ..role_assigner import _normalize_name
 from .llm import LLMSettings, accumulate_usage, build_chat_model, invoke_structured
 from .schemas import (
-    REVIEW_TOOLS, CastPlan, ChunkLabels, VoiceCasting,
+    REVIEW_TOOLS, CastPlan, ChunkLabels, RosterRevision, VoiceCasting,
 )
 from . import checks
 from .segmenter import chunk_segments, split_segments
@@ -41,13 +46,17 @@ PRONOUNS = {
     '我', '你', '他', '她', '它', '吾', '俺', '咱', '朕', '本王', '在下', '老子', '人家',
     '我们', '你们', '他们', '她们', '咱们', '我等', '尔等', '列位', '诸位', '大家', '众人',
 }
-
+PROFILE_FIELD_NAMES = {'gender': '性别', 'age': '年龄', 'traits': '特征', 'voice_style': '语气'}
+PROFILE_FIELDS = tuple(PROFILE_FIELD_NAMES)
+SPEAKING = {'对话', '心理'}
 
 
 class RoleAgentState(TypedDict, total=False):
     document_text: str
     segments: List[dict]
     chunks: List[List[int]]
+    # 待标注的批次下标；首轮为全部批次，重规划后只放受影响的批次
+    chunk_queue: List[int]
     chunk_cursor: int
     voice_configs: List[dict]
     fallback_speaker: str
@@ -63,6 +72,13 @@ class RoleAgentState(TypedDict, total=False):
     # 首次校验时的快照，用于评估校对员的净收益与校验规则的命中率
     pre_review_labels: Dict[int, dict]
     first_issues: List[dict]
+    # 重规划与人工确认
+    user_feedback: List[str]
+    pending_feedback: str
+    recheck: List[str]
+    replan_reply: str
+    auto_replans: int
+    approved: bool
     trace: Annotated[List[dict], operator.add]
 
 
@@ -118,6 +134,93 @@ def _mark_reviewed(labels: Dict[int, dict], issues: List[dict], limit: int) -> D
     return labels
 
 
+def roster_entries(characters, discovered: bool = False) -> List[dict]:
+    """把模型给出的 Character 列表整理成角色表：去重、去掉特殊说话人与代词别名。"""
+    roster, seen = [], set()
+    for character in characters:
+        name = character.name.strip()
+        if not name or name in SPECIAL_SPEAKERS or name in seen:
+            continue
+        seen.add(name)
+        roster.append({
+            'name': name,
+            'aliases': [
+                alias.strip() for alias in character.aliases
+                if alias.strip() and alias.strip() != name and alias.strip() not in PRONOUNS
+            ],
+            'gender': character.gender,
+            'age': character.age,
+            'traits': character.traits,
+            'voice_style': character.voice_style,
+            'discovered': discovered,
+        })
+    return roster
+
+
+def mentioned_segments(feedback: str, segments: List[dict], max_hits: int = 3) -> List[int]:
+    """意见里点名的片段：#编号，以及「引文」/“引文”能在原文中定位到（最多 max_hits 处）的片段。"""
+    ids = {int(n) for n in re.findall(r'#\s*(\d+)', feedback or '')}
+    valid = {segment['id'] for segment in segments}
+    for quote in re.findall(r'[「“"『‘]([^」”"』’]{2,})[」”"』’]', feedback or ''):
+        needle = _squash(quote)
+        hits = [s['id'] for s in segments if needle and needle in _squash(s['text'])]
+        if len(hits) <= max_hits:
+            ids.update(hits)
+    return sorted(ids & valid)
+
+
+def _squash(text: str) -> str:
+    """去掉空白与标点，只比较文字本身（用户引用时常省略或改动标点）。"""
+    return re.sub(r'[\W_]+', '', text or '')
+
+
+def character_stats(roster: List[dict], labels: Dict[int, dict], segments: List[dict], samples: int = 3) -> Dict[str, dict]:
+    """每个角色的台词数与前几句台词（编号 + 原文），供重规划与用户确认时参考。"""
+    segment_map = {segment['id']: segment for segment in segments}
+    stats = {c['name']: {'lines': 0, 'samples': []} for c in roster}
+    for seg_id in sorted(labels):
+        label = labels[seg_id]
+        item = stats.get(label['speaker'])
+        if item is None or label['category'] not in SPEAKING:
+            continue
+        item['lines'] += 1
+        if len(item['samples']) < samples:
+            item['samples'].append({'id': seg_id, 'text': segment_map[seg_id]['text'][:50]})
+    return stats
+
+
+def apply_roster_edits(roster: List[dict], labels: Dict[int, dict], edits: List[dict]):
+    """用户在名单里直接改的字段：性别/年龄/特征/语气，以及改名（改成已有角色名即合并）。"""
+    roster = [dict(c, aliases=list(c.get('aliases', []))) for c in roster]
+    labels = {seg_id: dict(label) for seg_id, label in labels.items()}
+    changes = []
+    for edit in edits or []:
+        character = next((c for c in roster if c['name'] == edit.get('name')), None)
+        if character is None:
+            continue
+        for field in PROFILE_FIELDS:
+            if field in edit and str(edit[field]) != str(character.get(field, '')):
+                character[field] = str(edit[field])
+                changes.append(f"{character['name']}的{PROFILE_FIELD_NAMES[field]}")
+        new_name = str(edit.get('new_name') or '').strip()
+        old_name = character['name']
+        if not new_name or new_name == old_name or new_name in SPECIAL_SPEAKERS:
+            continue
+        target = next((c for c in roster if c['name'] == new_name), None)
+        if target:
+            roster.remove(character)
+            target['aliases'] = list(dict.fromkeys(target['aliases'] + [old_name] + character['aliases']))
+            changes.append(f"{old_name} 并入 {new_name}")
+        else:
+            character['aliases'] = list(dict.fromkeys(character['aliases'] + [old_name]))
+            character['name'] = new_name
+            changes.append(f"{old_name} 改名 {new_name}")
+        for label in labels.values():
+            if label['speaker'] == old_name:
+                label['speaker'] = new_name
+    return roster, labels, changes
+
+
 class RoleAgent:
     """持有 LLM 与运行选项，节点方法共享同一份用量统计与进度回调。"""
 
@@ -130,6 +233,7 @@ class RoleAgent:
         auto_cast: bool = True,
         llm=None,
         skill: Optional[Skill] = None,
+        interactive: bool = False,
     ):
         self.settings = settings
         self.skill = skill or load_skill()
@@ -140,9 +244,12 @@ class RoleAgent:
         self.max_review_rounds = max_review_rounds
         self.max_review_steps = max_review_steps
         self.auto_cast = auto_cast
+        # 校对结束后在 roster_review 暂停，等用户确认角色名单或提出意见（需要 checkpointer）
+        self.interactive = interactive
         # 调用次数 / token / 美元花费，by_node 按节点细分
         self.usage: Dict[str, Any] = {}
         self._tool_llm = None
+        self._replan_llm = None
         self._tools_supported = True
 
     # ---------- 节点 ----------
@@ -156,6 +263,7 @@ class RoleAgent:
         return {
             'segments': segments,
             'chunks': chunks,
+            'chunk_queue': list(range(len(chunks))),
             'chunk_cursor': 0,
             'labels': {},
             'review_round': 0,
@@ -176,25 +284,7 @@ class RoleAgent:
             ))
             plan = invoke_structured(self.llm, CastPlan, messages, self.usage, 'plan_cast')
 
-        roster = []
-        seen = set()
-        for character in plan.characters:
-            name = character.name.strip()
-            if not name or name in SPECIAL_SPEAKERS or name in seen:
-                continue
-            seen.add(name)
-            roster.append({
-                'name': name,
-                'aliases': [
-                    alias.strip() for alias in character.aliases
-                    if alias.strip() and alias.strip() != name and alias.strip() not in PRONOUNS
-                ],
-                'gender': character.gender,
-                'age': character.age,
-                'traits': character.traits,
-                'discovered': False,
-            })
-
+        roster = roster_entries(plan.characters)
         names = '、'.join(item['name'] for item in roster) or '无'
         return {
             'roster': roster,
@@ -203,12 +293,16 @@ class RoleAgent:
         }
 
     def label_chunk(self, state: RoleAgentState) -> dict:
-        cursor = state['chunk_cursor']
-        chunk_ids = state['chunks'][cursor]
+        queue = list(state['chunk_queue'])
+        index = queue.pop(0)
+        chunk_ids = state['chunks'][index]
         segment_map = {segment['id']: segment for segment in state['segments']}
         labels = dict(state['labels'])
         roster = [dict(item) for item in state['roster']]
-        self.progress(f"标注第 {cursor + 1}/{len(state['chunks'])} 批...")
+        relabeling = any(seg_id in labels for seg_id in chunk_ids)
+        recheck = set(state.get('recheck') or [])
+        verb = '重标' if relabeling else '标注'
+        self.progress(f"{verb}第 {index + 1}/{len(state['chunks'])} 批...")
 
         first_id = chunk_ids[0]
         previous = [
@@ -225,6 +319,9 @@ class RoleAgent:
                 for seg_id in chunk_ids
             ],
         }
+        if state.get('user_feedback'):
+            # 用户对上一版结果提出的意见，标注时同样要遵守
+            payload['user_feedback'] = state['user_feedback']
         result = invoke_structured(self.llm, ChunkLabels, [
             SystemMessage(content=self.skill.prompts['executor']),
             HumanMessage(content=_dump(payload)),
@@ -232,7 +329,13 @@ class RoleAgent:
 
         returned = {item.id: item for item in result.labels if item.id in chunk_ids}
         discovered = []
+        kept = 0
         for seg_id in chunk_ids:
+            old = labels.get(seg_id)
+            if old and (old.get('pinned') or (old.get('reviewed') and old['speaker'] not in recheck)):
+                # 重标时保留用户指定和已核实的标签，只有需要复查的角色例外
+                kept += 1
+                continue
             item = returned.get(seg_id)
             if item is None:
                 labels[seg_id] = {**_default_label(segment_map[seg_id]), 'auto': True}
@@ -249,7 +352,8 @@ class RoleAgent:
                     speaker = resolved
                 elif speaker and speaker not in SPECIAL_SPEAKERS:
                     # 角色表里没有的新角色，登记为执行阶段发现的角色
-                    roster.append({'name': speaker, 'aliases': [], 'gender': '未知', 'age': '未知', 'traits': '', 'discovered': True})
+                    roster.append({'name': speaker, 'aliases': [], 'gender': '未知', 'age': '未知', 'traits': '',
+                                   'voice_style': '', 'discovered': True})
                     discovered.append(speaker)
                 else:
                     speaker = UNKNOWN
@@ -260,13 +364,16 @@ class RoleAgent:
                 'reason': item.reason.strip(),
             }
 
-        message = f"第 {cursor + 1} 批：{len(returned)}/{len(chunk_ids)} 个片段已标注"
+        message = f"{'重标' if relabeling else ''}第 {index + 1} 批：{len(returned)}/{len(chunk_ids)} 个片段已标注"
+        if kept:
+            message += f"，保留 {kept} 个已确认标签"
         if discovered:
             message += f"；新发现角色：{'、'.join(discovered)}"
         return {
             'labels': labels,
             'roster': roster,
-            'chunk_cursor': cursor + 1,
+            'chunk_queue': queue,
+            'chunk_cursor': state.get('chunk_cursor', 0) + 1,
             'trace': [{'node': 'label_chunk', 'message': message}],
         }
 
@@ -388,7 +495,8 @@ class RoleAgent:
                 HumanMessage(content=(
                     f"叙述视角：{state['plan'].get('pov')}；叙述者：{state['plan'].get('narrator_character') or '无'}\n"
                     f"角色表：{'、'.join(c['name'] for c in state['roster']) or '无'}\n"
-                    f"可疑片段（共 {len(state['issues'])} 个）：\n" + '\n'.join(issue_lines)
+                    + (f"用户意见（必须遵守）：{'；'.join(state['user_feedback'])}\n" if state.get('user_feedback') else '')
+                    + f"可疑片段（共 {len(state['issues'])} 个）：\n" + '\n'.join(issue_lines)
                 )),
             ]
 
@@ -536,6 +644,7 @@ class RoleAgent:
                 'gender': args.get('gender', '未知'),
                 'age': '未知',
                 'traits': args.get('traits', ''),
+                'voice_style': '',
                 'discovered': True,
             })
             return f"已添加角色 {character_name}"
@@ -563,10 +672,174 @@ class RoleAgent:
 
         return f"未知工具 {name}"
 
+    def replan_cast(self, state: RoleAgentState) -> dict:
+        """修订角色表：补全执行/校对阶段新增角色的档案，或按用户意见增删改角色、改点名的片段，
+        然后只把受影响的批次放回标注队列。"""
+        feedback = (state.get('pending_feedback') or '').strip()
+        by_user = bool(feedback)
+        self.progress("按意见修订角色表..." if by_user else "补全新增角色的信息...")
+        roster = state['roster']
+        labels = {seg_id: dict(label) for seg_id, label in state['labels'].items()}
+        segment_map = {segment['id']: segment for segment in state['segments']}
+        stats = character_stats(roster, labels, state['segments'], samples=2)
+
+        payload = {
+            'trigger': '用户意见' if by_user else '标注/校对时新增了角色',
+            'user_feedback': feedback,
+            'earlier_feedback': state.get('user_feedback') or [],
+            **state['plan'],
+            'roster': [
+                {**{k: c.get(k, '') for k in ('name', 'aliases', *PROFILE_FIELDS)},
+                 'new': bool(c.get('discovered')), **stats.get(c['name'], {})}
+                for c in roster
+            ],
+            'unknown_lines': [
+                {'id': seg_id, 'text': segment_map[seg_id]['text'][:40]}
+                for seg_id, label in sorted(labels.items()) if label['speaker'] == UNKNOWN
+            ][:20],
+        }
+        if by_user:
+            payload['mentioned_segments'] = [
+                {'id': seg_id, 'text': segment_map[seg_id]['text'][:80],
+                 'category': labels[seg_id]['category'], 'speaker': labels[seg_id]['speaker']}
+                for seg_id in mentioned_segments(feedback, state['segments'])
+            ]
+        prompt = self.skill.prompts.get('replanner') or self.skill.prompts['planner']
+        if self._replan_llm is None:
+            effort = self.p['replan_reasoning_effort']
+            self._replan_llm = (build_chat_model(self.settings, reasoning_effort=effort)
+                                if effort and not self._llm_injected else self.llm)
+        revision = invoke_structured(self._replan_llm, RosterRevision, [
+            SystemMessage(content=prompt), HumanMessage(content=_dump(payload)),
+        ], self.usage, 'replan_cast')
+
+        new_roster = roster_entries(revision.characters)
+        new_names = {c['name'] for c in new_roster}
+        old_names = [c['name'] for c in roster]
+        merged, removed = {}, []
+        for character in roster:
+            if character['name'] in new_names:
+                continue
+            target = resolve_speaker(character['name'], new_roster)
+            if target:
+                merged[character['name']] = target
+            elif by_user and any(n in feedback for n in [character['name']] + character.get('aliases', [])):
+                removed.append(character['name'])
+            else:
+                # 意见里没提到的角色不许删：模型漏写的原样保留
+                new_roster.append({**character, 'discovered': False})
+        for old_name, target in merged.items():
+            for label in labels.values():
+                if label['speaker'] == old_name:
+                    label['speaker'] = target
+
+        added = [c['name'] for c in new_roster if c['name'] not in old_names]
+        recheck = {resolve_speaker(name, new_roster) for name in revision.recheck} - {''}
+        recheck |= set(added) | set(removed)
+
+        pinned = []
+        for update in revision.relabels:
+            if update.id not in segment_map:
+                continue
+            category = update.category if update.category in VALID_CATEGORIES else '旁白'
+            speaker = {'旁白': NARRATOR, '系统': SYSTEM}.get(category) or resolve_speaker(update.speaker, new_roster)
+            if not speaker:
+                continue
+            labels[update.id] = {
+                'category': category, 'speaker': speaker, 'confidence': 0.95,
+                'reason': ('用户意见' if by_user else '修订角色表') + (f"：{update.reason}" if update.reason else ''),
+                'reviewed': True, 'pinned': by_user,
+            }
+            pinned.append(update.id)
+
+        # 受影响的片段：需要复查的角色的台词；有角色增删时连同未识别的台词、提到新角色名字的片段
+        affected = {seg_id for seg_id, label in labels.items() if label['speaker'] in recheck}
+        if recheck:
+            affected |= {seg_id for seg_id, label in labels.items() if label['speaker'] == UNKNOWN}
+            names = [n for c in new_roster if c['name'] in added for n in [c['name']] + c['aliases'] if len(n) >= 2]
+            affected |= {s['id'] for s in state['segments'] if any(n in s['text'] for n in names)}
+        affected -= set(pinned)
+        queue = [index for index, chunk in enumerate(state['chunks']) if affected & set(chunk)]
+
+        parts = []
+        if added:
+            parts.append(f"新增 {'、'.join(added)}")
+        if merged:
+            parts.append('合并 ' + '、'.join(f"{a}→{b}" for a, b in merged.items()))
+        if removed:
+            parts.append(f"移除 {'、'.join(removed)}")
+        if pinned:
+            parts.append(f"改正 {len(pinned)} 个片段")
+        parts.append(f"重标 {len(queue)} 批" if queue else '无需重标')
+        update = {
+            'roster': new_roster,
+            'labels': labels,
+            'plan': {**state['plan'], 'notes': revision.notes or state['plan'].get('notes', '')},
+            'chunk_queue': queue,
+            'recheck': sorted(recheck),
+            'pending_feedback': '',
+            'replan_reply': revision.reply.strip(),
+            'trace': [{'node': 'replan_cast', 'message': ('按用户意见' if by_user else '补全新增角色，') + '修订角色表：'
+                       + '；'.join(parts) + (f"（{revision.reply.strip()[:60]}）" if revision.reply.strip() else '')}],
+        }
+        if by_user:
+            update['user_feedback'] = list(state.get('user_feedback') or []) + [feedback]
+            # 用户意见带来的改动再给校对员一轮复核
+            update['review_round'] = max(0, self.max_review_rounds - 1)
+            update['approved'] = False
+        else:
+            update['auto_replans'] = state.get('auto_replans', 0) + 1
+        return update
+
+    def roster_payload(self, state: RoleAgentState) -> dict:
+        """交给用户确认的角色名单：每个角色的档案、台词数与示例台词，以及仍存疑的片段。"""
+        stats = character_stats(state['roster'], state['labels'], state['segments'])
+        segment_map = {segment['id']: segment for segment in state['segments']}
+        roster = [
+            {**{k: c.get(k, '') for k in ('name', *PROFILE_FIELDS)}, 'aliases': list(c.get('aliases', [])),
+             **stats[c['name']]}
+            for c in state['roster']
+        ]
+        roster.sort(key=lambda c: -c['lines'])
+        counts = {}
+        for label in state['labels'].values():
+            counts[label['speaker']] = counts.get(label['speaker'], 0) + 1
+        return {
+            'roster': roster,
+            'pov': state['plan'].get('pov', ''),
+            'segments': len(state['segments']),
+            'narration_lines': counts.get(NARRATOR, 0),
+            'system_lines': counts.get(SYSTEM, 0),
+            'unknown_lines': counts.get(UNKNOWN, 0),
+            'issues': [
+                {'id': issue['id'], 'problem': issue['problem'], 'text': segment_map[issue['id']]['text'][:40]}
+                for issue in state.get('issues') or []
+            ],
+            'reply': state.get('replan_reply', ''),
+            'feedback_history': list(state.get('user_feedback') or []),
+        }
+
+    def roster_review(self, state: RoleAgentState) -> dict:
+        """暂停等用户确认名单。恢复值：{'action': 'approve'|'revise', 'feedback': 意见原文, 'edits': 直接修改}"""
+        decision = interrupt(self.roster_payload(state)) or {}
+        roster, labels, changes = apply_roster_edits(state['roster'], state['labels'], decision.get('edits') or [])
+        feedback = str(decision.get('feedback') or '').strip()
+        revise = decision.get('action') == 'revise' and bool(feedback)
+        message = f"用户提出意见：{feedback[:60]}" if revise else '用户确认角色名单'
+        if changes:
+            message += f"；直接修改：{'、'.join(changes)}"
+        return {
+            'roster': roster,
+            'labels': labels,
+            'pending_feedback': feedback if revise else '',
+            'approved': not revise,
+            'trace': [{'node': 'roster_review', 'message': message}],
+        }
+
     def cast_voices(self, state: RoleAgentState) -> dict:
-        voice_configs = state['voice_configs']
+        voice_configs = state.get('voice_configs') or []
         voice_names = [item['name'] for item in voice_configs]
-        fallback = state['fallback_speaker']
+        fallback = state.get('fallback_speaker', '')
         roster = state['roster']
 
         used = []
@@ -613,7 +886,7 @@ class RoleAgent:
                 'narrator_voice': fallback,
                 'already_mapped': {k: v['voice'] for k, v in mapping.items()},
                 'characters': [
-                    {k: c.get(k, '') for k in ('name', 'gender', 'age', 'traits')} for c in pending
+                    {k: c.get(k, '') for k in ('name', *PROFILE_FIELDS)} for c in pending
                 ],
             }
             try:
@@ -638,11 +911,26 @@ class RoleAgent:
 
     @staticmethod
     def route_after_label(state: RoleAgentState) -> str:
-        return 'label_chunk' if state['chunk_cursor'] < len(state['chunks']) else 'validate'
+        return 'label_chunk' if state.get('chunk_queue') else 'validate'
 
-    @staticmethod
-    def route_after_validate(state: RoleAgentState) -> str:
-        return 'cast_voices' if state.get('review_done') else 'review_agent'
+    def _finish(self, state: RoleAgentState) -> str:
+        return 'cast_voices' if self.auto_cast and state.get('voice_configs') else END
+
+    def route_after_validate(self, state: RoleAgentState) -> str:
+        if not state.get('review_done'):
+            return 'review_agent'
+        if (self.p['auto_replan'] and state.get('auto_replans', 0) < self.p['max_replan']
+                and any(c.get('discovered') for c in state['roster'])):
+            return 'replan_cast'
+        if self.interactive and not state.get('approved'):
+            return 'roster_review'
+        return self._finish(state)
+
+    def route_after_replan(self, state: RoleAgentState) -> str:
+        return 'label_chunk' if state.get('chunk_queue') else 'validate'
+
+    def route_after_roster_review(self, state: RoleAgentState) -> str:
+        return 'replan_cast' if state.get('pending_feedback') else self._finish(state)
 
     @staticmethod
     def route_after_review(state: RoleAgentState) -> str:
@@ -654,7 +942,7 @@ class RoleAgent:
     def route_after_tools(state: RoleAgentState) -> str:
         return 'validate' if state.get('review_done') else 'review_agent'
 
-    def build_graph(self):
+    def build_graph(self, checkpointer=None):
         graph = StateGraph(RoleAgentState)
         graph.add_node('segment', self.segment)
         graph.add_node('plan_cast', self.plan_cast)
@@ -662,17 +950,22 @@ class RoleAgent:
         graph.add_node('validate', self.validate)
         graph.add_node('review_agent', self.review_agent)
         graph.add_node('review_tools', self.review_tools)
+        graph.add_node('replan_cast', self.replan_cast)
+        graph.add_node('roster_review', self.roster_review)
         graph.add_node('cast_voices', self.cast_voices)
 
         graph.add_edge(START, 'segment')
         graph.add_edge('segment', 'plan_cast')
         graph.add_edge('plan_cast', 'label_chunk')
         graph.add_conditional_edges('label_chunk', self.route_after_label, ['label_chunk', 'validate'])
-        graph.add_conditional_edges('validate', self.route_after_validate, ['review_agent', 'cast_voices'])
+        graph.add_conditional_edges('validate', self.route_after_validate,
+                                    ['review_agent', 'replan_cast', 'roster_review', 'cast_voices', END])
         graph.add_conditional_edges('review_agent', self.route_after_review, ['review_tools', 'validate'])
         graph.add_conditional_edges('review_tools', self.route_after_tools, ['review_agent', 'validate'])
+        graph.add_conditional_edges('replan_cast', self.route_after_replan, ['label_chunk', 'validate'])
+        graph.add_conditional_edges('roster_review', self.route_after_roster_review, ['replan_cast', 'cast_voices', END])
         graph.add_edge('cast_voices', END)
-        return graph.compile()
+        return graph.compile(checkpointer=checkpointer)
 
     def run(self, document_text: str, voice_configs: List[dict], fallback_speaker: str) -> RoleAgentState:
         app = self.build_graph()

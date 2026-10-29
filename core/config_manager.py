@@ -23,6 +23,10 @@ class ConfigManager:
             "llm_agent_review_rounds": 2,
             "llm_agent_review_steps": 10,
             "llm_agent_auto_cast": True,
+            # 校对后先弹出角色名单让用户确认或提意见重跑，再生成角色表
+            "llm_agent_interactive": True,
+            # 自动匹配参考音频时上次使用的目录
+            "voice_library_dir": "",
             # 留空使用 core/role_agent/skills/novel-role-assign/SKILL.md
             "llm_agent_skill_path": "",
             "default_speaker_name": "",

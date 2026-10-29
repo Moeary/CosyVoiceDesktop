@@ -102,6 +102,73 @@ class RoleAssignmentWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+class RoleAgentSessionWorker(QThread):
+    """交互式分角会话的一步：start / resume / retry。停在名单确认时发 review_ready，跑完发 finished_result。"""
+    review_ready = pyqtSignal(dict)
+    finished_result = pyqtSignal(dict)
+    error = pyqtSignal(str)
+    progress = pyqtSignal(str)
+
+    def __init__(self, service, session, action, segments, voice_configs, document_text='', decision=None):
+        super().__init__()
+        self.service = service
+        self.session = session
+        self.action = action
+        self.segments = segments
+        self.voice_configs = voice_configs
+        self.document_text = document_text
+        self.decision = decision
+
+    def run(self):
+        try:
+            self.session.agent.progress = self.progress.emit
+            if self.action == 'start':
+                pending = self.session.start(self.document_text)
+            elif self.action == 'resume':
+                pending = self.session.resume(self.decision or {'action': 'approve'})
+            else:
+                pending = self.session.retry()
+            if pending is not None:
+                self.review_ready.emit(pending)
+            else:
+                self.finished_result.emit(self.service.session_result(self.session, self.segments, self.voice_configs))
+        except Exception as e:
+            self.error.emit(f"{type(e).__name__}: {e}" if not str(e) else str(e))
+
+
+class RoleTableWorker(QThread):
+    """名单确认后：生成角色表（可扫描参考音频目录自动匹配），或映射到已有音色配置。"""
+    finished_table = pyqtSignal(dict)
+    error = pyqtSignal(str)
+    progress = pyqtSignal(str)
+
+    def __init__(self, service, session, voice_configs, choice, library_dir=''):
+        super().__init__()
+        self.service = service
+        self.session = session
+        self.voice_configs = voice_configs
+        self.choice = choice
+        self.library_dir = library_dir
+
+    def run(self):
+        try:
+            agent = self.session.agent
+            agent.progress = self.progress.emit
+            if self.choice == 'existing':
+                self.progress.emit("为角色挑选已有音色...")
+                mapping = self.service.cast_to_existing(self.session, self.voice_configs)
+                self.finished_table.emit({'choice': 'existing', 'mapping': {k: v['voice'] for k, v in mapping.items()}})
+                return
+            result = self.service.build_role_table(
+                self.session.state, self.voice_configs,
+                library_dir=self.library_dir if self.choice == 'library' else '',
+                llm=agent.llm, skill=agent.skill, usage=agent.usage, progress=self.progress.emit,
+            )
+            self.finished_table.emit({'choice': self.choice, **result})
+        except Exception as e:
+            self.error.emit(str(e) or type(e).__name__)
+
+
 class AudioGenerationWorker(QThread):
     """音频生成工作线程"""
     progress = pyqtSignal(str)  # 日志消息
