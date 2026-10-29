@@ -41,6 +41,8 @@ LOW_CONFIDENCE = 0.6
 MAX_PLAN_CHARS = 30000
 CONTEXT_WINDOW = 8
 MAX_ISSUES_IN_PROMPT = 40
+# 校对员每一步只需要思考 + 工具调用，不需要长输出
+REVIEW_MAX_TOKENS = 2048
 
 
 class RoleAgentState(TypedDict, total=False):
@@ -357,7 +359,7 @@ class RoleAgent:
 
     def review_agent(self, state: RoleAgentState) -> dict:
         if self._tool_llm is None:
-            self._tool_llm = self.llm.bind_tools(REVIEW_TOOLS)
+            self._tool_llm = self.llm.bind_tools(REVIEW_TOOLS, max_tokens=REVIEW_MAX_TOKENS)
 
         messages = list(state.get('messages') or [])
         if not messages:
@@ -392,6 +394,12 @@ class RoleAgent:
 
         calls = getattr(response, 'tool_calls', None) or []
         thought = (response.content if isinstance(response.content, str) else '').strip()
+        if not calls and (getattr(response, 'response_metadata', None) or {}).get('finish_reason') == 'length':
+            # 被输出上限截断：结束校对，但不能当作“已确认”
+            return {
+                'review_done': True,
+                'trace': [{'node': 'review_agent', 'message': f"单步输出超过 {REVIEW_MAX_TOKENS} token 上限，结束校对"}],
+            }
         action = '、'.join(call['name'] for call in calls) or '结束'
         update = {
             'messages': messages + [response],

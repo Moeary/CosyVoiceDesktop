@@ -15,7 +15,8 @@ from pydantic import BaseModel, ValidationError
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash"
-ENV_KEY_NAMES = ("OPENROUTER_API_KEY", "OpenRouter_API_KEY", "OPENROUTER_KEY")
+MAX_OUTPUT_TOKENS = 8192
+ENV_KEY_NAMES =("OPENROUTER_API_KEY", "OpenRouter_API_KEY", "OPENROUTER_KEY")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -110,7 +111,8 @@ def resolve_llm_settings(config_manager) -> LLMSettings:
     )
 
 
-def build_chat_model(settings: LLMSettings, temperature: float = 0.1):
+def build_chat_model(settings: LLMSettings, temperature: float = 0.1, max_tokens: int = MAX_OUTPUT_TOKENS):
+    """max_tokens 含推理 token；不设上限时推理模型偶尔会陷入长循环（实测单次 13 万 token）。"""
     from langchain_openai import ChatOpenAI
 
     headers = {}
@@ -125,6 +127,7 @@ def build_chat_model(settings: LLMSettings, temperature: float = 0.1):
         # 本地无鉴权服务也要求非空 key
         api_key=settings.api_key or 'sk-no-key',
         temperature=temperature,
+        max_tokens=max_tokens,
         timeout=settings.timeout,
         max_retries=2,
         default_headers=headers or None,
