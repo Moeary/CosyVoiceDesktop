@@ -1,0 +1,43 @@
+id: dorm
+title: 宿舍夜谈 · 三人无提示语对话与电话
+focus: [三人轮替推理, 电话另一端角色, 冒号后无引号发言]
+text: |-
+  熄灯以后，宿舍里只剩下手机屏幕的光。
+  “谁把我的泡面吃了？”周航从上铺探出头。
+  “不是我。”
+  “也不是我，我今天一天都在图书馆。”老许翻了个身。
+  周航盯着下铺：“小葛，你嘴角还有调料包的渣。”
+  “……那是昨天的。”
+  “昨天你吃的是我的火腿肠。”
+  老许笑出了声：“行了行了，明天我请客，一人一碗牛肉面。”
+  “你说的啊！”小葛立刻坐了起来。
+  这时周航的手机响了，屏幕上跳出“妈”字。他压低声音接起来。
+  “航航，睡了没有？”
+  “快睡了，妈。”
+  “天冷了，记得把厚被子拿出来。”
+  “知道了知道了。”
+  挂了电话，宿舍里安静了几秒。小葛小声嘀咕：要是我妈也这么唠叨就好了。
+roster:
+  - {name: 周航, aliases: [航航]}
+  - {name: 老许, aliases: [许]}
+  - {name: 小葛, aliases: [葛]}
+  - {name: 妈妈, aliases: [妈, 周航妈妈, 周航的妈妈, 航航妈妈, 母亲, 周妈妈]}
+gold:
+  - {match: 谁把我的泡面吃了, category: 对话, speaker: 周航}
+  - {match: “不是我。”, category: 对话, speaker: 小葛}
+  - {match: 也不是我，我今天, category: 对话, speaker: 老许}
+  - {match: 小葛，你嘴角, category: 对话, speaker: 周航}
+  - {match: 那是昨天的, category: 对话, speaker: 小葛}
+  - {match: 昨天你吃的是我的火腿肠, category: 对话, speaker: [周航, 老许]}
+  - {match: 行了行了, category: 对话, speaker: 老许}
+  - {match: 你说的啊, category: 对话, speaker: 小葛}
+  - {match: 航航，睡了没有, category: 对话, speaker: 妈妈}
+  - {match: 快睡了，妈, category: 对话, speaker: 周航}
+  - {match: 天冷了, category: 对话, speaker: 妈妈}
+  - {match: 知道了知道了, category: 对话, speaker: 周航}
+  - {match: 要是我妈也这么唠叨, category: [对话, 心理], speaker: 小葛}
+casting:
+  周航: [青年男声, 少年男声]
+  老许: [青年男声, 中年男声, 少年男声]
+  小葛: [少年男声, 青年男声]
+  妈妈: [中年女声]

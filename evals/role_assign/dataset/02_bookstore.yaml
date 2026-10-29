@@ -1,0 +1,36 @@
+id: bookstore
+title: 旧书店 · 第一人称与多称呼
+focus: [第一人称叙述者, 无提示语短对话轮替, 一人四名]
+text: |-
+  雨下到第三天的时候，我终于在旧书店门口等到了林晚。
+  她收起伞，抖了抖水珠：“你又在等我？”
+  “路过而已。”
+  “路过三天？”
+  我没接话。店里的陈老板探出头来，眼镜滑到鼻尖：“两位要进来就快点，别把雨气带进来。”
+  “陈叔，我找那本《雨巷》的初版。”
+  “早卖了。”老陈摆摆手，又补了一句，“不过，上周有个姑娘也来问过。”
+  林晚愣了一下。我心想：难道她也在找那本书？
+  “是我。”她低声说。
+  老头哈哈一笑：“那就巧了，买走它的人，正是这位小伙子的父亲。”
+  “我爸？”
+  晚晚转过头看我，眼神里有我读不懂的东西。
+roster:
+  - {name: 我, aliases: [叙述者, 小伙子]}
+  - {name: 林晚, aliases: [晚晚]}
+  - {name: 陈老板, aliases: [陈叔, 老陈, 老头]}
+gold:
+  - {match: 你又在等我, category: 对话, speaker: 林晚}
+  - {match: 路过而已, category: 对话, speaker: 我}
+  - {match: 路过三天, category: 对话, speaker: 林晚}
+  - {match: 两位要进来就快点, category: 对话, speaker: 陈老板}
+  - {match: 陈叔，我找那本, category: 对话, speaker: 我}
+  - {match: 早卖了, category: 对话, speaker: 陈老板}
+  - {match: 上周有个姑娘, category: 对话, speaker: 陈老板}
+  - {match: 难道她也在找那本书, category: 心理, speaker: 我}
+  - {match: “是我。”, category: 对话, speaker: 林晚}
+  - {match: 那就巧了, category: 对话, speaker: 陈老板}
+  - {match: 我爸？, category: 对话, speaker: 我}
+casting:
+  我: [青年男声, 少年男声]
+  林晚: [温柔女声]
+  陈老板: [老年男声, 中年男声]

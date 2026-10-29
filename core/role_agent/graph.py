@@ -8,6 +8,8 @@
     review_agent ReAct 校对员：带着问题清单调用工具查上下文、改标签、补/并角色
     review_tools 执行校对员的工具调用
     cast_voices  把角色映射到本地音色配置（规则匹配优先，其余由 LLM 按性别/年龄/特征选角）
+
+各节点的提示词与阈值来自 skills/novel-role-assign/SKILL.md（见 skill.py）。
 """
 
 import json
@@ -23,6 +25,7 @@ from .schemas import (
     REVIEW_TOOLS, CastPlan, ChunkLabels, VoiceCasting,
 )
 from .segmenter import chunk_segments, split_segments
+from .skill import Skill, load_skill
 
 NARRATOR = '旁白'
 SYSTEM = '系统'
@@ -37,12 +40,6 @@ PRONOUNS = {
     '我们', '你们', '他们', '她们', '咱们', '我等', '尔等', '列位', '诸位', '大家', '众人',
 }
 
-LOW_CONFIDENCE = 0.6
-MAX_PLAN_CHARS = 30000
-CONTEXT_WINDOW = 8
-MAX_ISSUES_IN_PROMPT = 40
-# 校对员每一步只需要思考 + 工具调用，不需要长输出
-REVIEW_MAX_TOKENS = 2048
 
 
 class RoleAgentState(TypedDict, total=False):
@@ -61,48 +58,11 @@ class RoleAgentState(TypedDict, total=False):
     review_done: bool
     messages: List[Any]
     voice_mapping: Dict[str, dict]
+    # 首次校验时的快照，用于评估校对员的净收益与校验规则的命中率
+    pre_review_labels: Dict[int, dict]
+    first_issues: List[dict]
     trace: Annotated[List[dict], operator.add]
 
-
-PLANNER_PROMPT = (
-    "你是中文多角色有声书的选角导演。请通读全文，列出所有会说话或有心理活动的角色。"
-    "name 用正文中最常用、最稳定的称呼作为规范名；同一人物的其他称呼、外号、身份变化后的名字都放进 aliases，"
-    "但不要把 我、你、他、我等、列位 这类代词或泛称放进 aliases。"
-    "群体发言（如 众猴、众人、士兵们）也作为一个角色。旁白、作者不是角色。"
-    "性别、年龄、traits 依据原文推断，没有依据就填 未知/留空。"
-    "判断叙述视角；若为第一人称，narrator_character 填“我”对应的人物名（无名可填 我）。"
-    "notes 写给后续标注员：容易混淆的称呼、说话习惯、对话轮替规律等。"
-)
-
-EXECUTOR_PROMPT = (
-    "你是有声书台本标注员。正文已被程序切成编号片段，你只需要为本批每个片段输出 id、category、speaker、confidence、reason，"
-    "不要改写或复述原文，也不要遗漏任何 id。\n"
-    "category 只能是：旁白、对话、心理、系统。\n"
-    "- 引号内的发言（quote=true）通常是 对话；引号外的“某某道：”“他说，”这类提示语本身是 旁白。\n"
-    "- 心理活动、内心独白、自忖、心想的内容是 心理，并指出是谁在想。\n"
-    "- 纯叙述、环境、动作描写是 旁白；章节标题、系统提示、舞台说明是 系统。\n"
-    "- 第一人称叙述中“我”的叙述部分仍是 旁白；“我”说出的话的 speaker 是叙述者角色。\n"
-    "speaker 规则：对话/心理必须填角色表中的规范名（不要用别名）；角色表里没有的新角色可以直接写其正文称呼；"
-    "旁白填 旁白，系统填 系统；确实无法判断才填 未识别角色。\n"
-    "利用 previous_context 延续对话轮替：两人交替对话时，未标明说话人的引号通常轮流归属。\n"
-    "confidence 取 0~1，说话人靠推断而非明示时要相应降低。reason 不超过 20 字。"
-)
-
-REVIEWER_PROMPT = (
-    "你是有声书台本的校对员，采用 ReAct 方式工作：先思考，再调用工具查证，然后修正。\n"
-    "自动校验发现了一批可疑片段。请逐个用 ReadSegments 查看前后文（通常前后各 3~5 个片段），"
-    "必要时用 SearchText 追踪人物称呼，用 GetRoster 查看角色表。\n"
-    "确认有误时用 Relabel 批量修正；角色表漏人用 AddCharacter；同一人物出现两个名字用 MergeCharacter。\n"
-    "如果查证后认为原标签正确，无需修改。引号也可能只是强调或引用称谓，那种情况保持 旁白 即可。\n"
-    "speaker 只能是角色表规范名、旁白、系统或 未识别角色。处理完全部问题后调用 Finish。"
-)
-
-CASTER_PROMPT = (
-    "你是有声书选角导演。请为每个角色从 available_voice_configs 中挑选最合适的本地音色配置。"
-    "依据角色的性别、年龄、身份特征，与音色配置的名称、指令文本、参考文本做匹配。"
-    "尽量让主要角色使用不同音色，并避开旁白使用的音色；音色不够时次要角色可以共用。"
-    "实在没有合适的就把 voice_config 留空，交给用户手动指定。voice_config 必须原样使用列表中的名称。"
-)
 
 
 def _dump(data) -> str:
@@ -146,10 +106,10 @@ def _default_label(segment: dict) -> dict:
     return {'category': '旁白', 'speaker': NARRATOR, 'confidence': 0.0, 'reason': '模型漏标，按默认旁白处理'}
 
 
-def _mark_reviewed(labels: Dict[int, dict], issues: List[dict]) -> Dict[int, dict]:
+def _mark_reviewed(labels: Dict[int, dict], issues: List[dict], limit: int) -> Dict[int, dict]:
     """校对员主动结束时，视为已确认本轮交给它的片段（低置信度不再重复报告）。"""
     labels = {seg_id: dict(label) for seg_id, label in labels.items()}
-    for issue in issues[:MAX_ISSUES_IN_PROMPT]:
+    for issue in issues[:limit]:
         label = labels.get(issue['id'])
         if label is not None:
             label['reviewed'] = True
@@ -167,14 +127,18 @@ class RoleAgent:
         max_review_steps: int = 10,
         auto_cast: bool = True,
         llm=None,
+        skill: Optional[Skill] = None,
     ):
         self.settings = settings
+        self.skill = skill or load_skill()
+        self.p = self.skill.params
         self.llm = llm or build_chat_model(settings)
         self.progress = progress or (lambda message: None)
         self.max_review_rounds = max_review_rounds
         self.max_review_steps = max_review_steps
         self.auto_cast = auto_cast
-        self.usage: Dict[str, int] = {}
+        # 调用次数 / token / 美元花费，by_node 按节点细分
+        self.usage: Dict[str, Any] = {}
         self._tool_llm = None
         self._tools_supported = True
 
@@ -184,7 +148,7 @@ class RoleAgent:
         segments = split_segments(state['document_text'])
         if not segments:
             raise ValueError("没有可分配的文本内容")
-        chunks = chunk_segments(segments)
+        chunks = chunk_segments(segments, self.p['chunk_max_items'], self.p['chunk_max_chars'])
         self.progress(f"断句完成：{len(segments)} 个片段")
         return {
             'segments': segments,
@@ -198,16 +162,16 @@ class RoleAgent:
     def plan_cast(self, state: RoleAgentState) -> dict:
         self.progress("规划角色表...")
         text = state['document_text']
-        clipped = text[:MAX_PLAN_CHARS]
+        clipped = text[:self.p['max_plan_chars']]
         header = f"（全文共 {len(text)} 字，以下为前 {len(clipped)} 字，后文的新角色由标注员补充）\n" if len(text) > len(clipped) else ''
-        messages = [SystemMessage(content=PLANNER_PROMPT), HumanMessage(content=header + clipped)]
-        plan = invoke_structured(self.llm, CastPlan, messages, self.usage)
+        messages = [SystemMessage(content=self.skill.prompts['planner']), HumanMessage(content=header + clipped)]
+        plan = invoke_structured(self.llm, CastPlan, messages, self.usage, 'plan_cast')
         if not plan.characters and any(segment['in_quote'] for segment in state['segments']):
             # 有对白却没给出角色，多为模型把角色写进了 notes；追问一次
             messages.append(HumanMessage(
                 content=f"你上次的 characters 为空，但正文中有对白。你的备注是：{plan.notes}\n请把所有说话角色填入 characters 重新输出。"
             ))
-            plan = invoke_structured(self.llm, CastPlan, messages, self.usage)
+            plan = invoke_structured(self.llm, CastPlan, messages, self.usage, 'plan_cast')
 
         roster = []
         seen = set()
@@ -246,7 +210,7 @@ class RoleAgent:
         first_id = chunk_ids[0]
         previous = [
             {'id': seg_id, 'text': segment_map[seg_id]['text'], **{k: labels[seg_id][k] for k in ('category', 'speaker')}}
-            for seg_id in range(max(1, first_id - CONTEXT_WINDOW), first_id)
+            for seg_id in range(max(1, first_id - self.p['context_window']), first_id)
             if seg_id in labels
         ]
         payload = {
@@ -259,9 +223,9 @@ class RoleAgent:
             ],
         }
         result = invoke_structured(self.llm, ChunkLabels, [
-            SystemMessage(content=EXECUTOR_PROMPT),
+            SystemMessage(content=self.skill.prompts['executor']),
             HumanMessage(content=_dump(payload)),
-        ], self.usage)
+        ], self.usage, 'label_chunk')
 
         returned = {item.id: item for item in result.labels if item.id in chunk_ids}
         discovered = []
@@ -328,12 +292,15 @@ class RoleAgent:
                 problem = '引号内文本被标为旁白'
             elif label['category'] in {'对话', '心理'} and not resolve_speaker(label['speaker'], roster):
                 problem = '说话人不在角色表'
-            elif label.get('confidence', 1) < LOW_CONFIDENCE and not label.get('reviewed'):
+            elif label.get('confidence', 1) < self.p['low_confidence'] and not label.get('reviewed'):
                 problem = f"置信度低({label.get('confidence', 0):.2f})"
             if problem:
                 issues.append({'id': seg_id, 'problem': problem})
 
         update: dict = {'labels': labels, 'issues': issues}
+        if 'first_issues' not in state:
+            update['first_issues'] = issues
+            update['pre_review_labels'] = {seg_id: dict(label) for seg_id, label in labels.items()}
         can_review = (
             issues
             and self._tools_supported
@@ -359,20 +326,20 @@ class RoleAgent:
 
     def review_agent(self, state: RoleAgentState) -> dict:
         if self._tool_llm is None:
-            self._tool_llm = self.llm.bind_tools(REVIEW_TOOLS, max_tokens=REVIEW_MAX_TOKENS)
+            self._tool_llm = self.llm.bind_tools(REVIEW_TOOLS, max_tokens=self.p['review_max_tokens'])
 
         messages = list(state.get('messages') or [])
         if not messages:
             segment_map = {segment['id']: segment for segment in state['segments']}
             issue_lines = []
-            for issue in state['issues'][:MAX_ISSUES_IN_PROMPT]:
+            for issue in state['issues'][:self.p['max_issues_in_prompt']]:
                 label = state['labels'][issue['id']]
                 issue_lines.append(
                     f"#{issue['id']} [{issue['problem']}] 当前={label['category']}/{label['speaker']} "
                     f"原文={segment_map[issue['id']]['text'][:60]}"
                 )
             messages = [
-                SystemMessage(content=REVIEWER_PROMPT),
+                SystemMessage(content=self.skill.prompts['reviewer']),
                 HumanMessage(content=(
                     f"叙述视角：{state['plan'].get('pov')}；叙述者：{state['plan'].get('narrator_character') or '无'}\n"
                     f"角色表：{'、'.join(c['name'] for c in state['roster']) or '无'}\n"
@@ -390,7 +357,7 @@ class RoleAgent:
                 'review_done': True,
                 'trace': [{'node': 'review_agent', 'message': f"当前模型不支持工具调用，跳过校对：{str(e)[:120]}"}],
             }
-        accumulate_usage(self.usage, response)
+        accumulate_usage(self.usage, response, 'review_agent')
 
         calls = getattr(response, 'tool_calls', None) or []
         thought = (response.content if isinstance(response.content, str) else '').strip()
@@ -398,7 +365,7 @@ class RoleAgent:
             # 被输出上限截断：结束校对，但不能当作“已确认”
             return {
                 'review_done': True,
-                'trace': [{'node': 'review_agent', 'message': f"单步输出超过 {REVIEW_MAX_TOKENS} token 上限，结束校对"}],
+                'trace': [{'node': 'review_agent', 'message': f"单步输出超过 {self.p['review_max_tokens']} token 上限，结束校对"}],
             }
         action = '、'.join(call['name'] for call in calls) or '结束'
         update = {
@@ -407,7 +374,7 @@ class RoleAgent:
             'trace': [{'node': 'review_agent', 'message': (f"思考：{thought[:80]} → " if thought else '') + f"行动：{action}"}],
         }
         if not calls:
-            update['labels'] = _mark_reviewed(state['labels'], state['issues'])
+            update['labels'] = _mark_reviewed(state['labels'], state['issues'], self.p['max_issues_in_prompt'])
         return update
 
     def review_tools(self, state: RoleAgentState) -> dict:
@@ -434,7 +401,7 @@ class RoleAgent:
             messages.append(ToolMessage(content=result, tool_call_id=call['id'], name=name))
 
         if done:
-            labels = _mark_reviewed(labels, state['issues'])
+            labels = _mark_reviewed(labels, state['issues'], self.p['max_issues_in_prompt'])
         steps = state.get('review_steps', 0) + 1
         return {
             'messages': messages,
@@ -584,9 +551,9 @@ class RoleAgent:
             }
             try:
                 casting = invoke_structured(self.llm, VoiceCasting, [
-                    SystemMessage(content=CASTER_PROMPT),
+                    SystemMessage(content=self.skill.prompts['caster']),
                     HumanMessage(content=_dump(payload)),
-                ], self.usage)
+                ], self.usage, 'cast_voices')
                 pending_names = {c['name'] for c in pending}
                 for item in casting.mappings:
                     character = resolve_speaker(item.character, roster) or item.character

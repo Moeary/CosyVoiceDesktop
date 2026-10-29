@@ -131,6 +131,8 @@ def build_chat_model(settings: LLMSettings, temperature: float = 0.1, max_tokens
         timeout=settings.timeout,
         max_retries=2,
         default_headers=headers or None,
+        # OpenRouter 在 usage 中回传本次调用的实际美元花费
+        extra_body={'usage': {'include': True}} if settings.is_openrouter else None,
     )
 
 
@@ -160,7 +162,7 @@ def _extract_json(text: str):
     raise ValueError("无法从模型输出中解析 JSON")
 
 
-def invoke_structured(llm, schema: Type[T], messages: List, usage: Optional[dict] = None) -> T:
+def invoke_structured(llm, schema: Type[T], messages: List, usage: Optional[dict] = None, node: str = '') -> T:
     """按 function_calling → json_schema → 纯文本 JSON 的顺序逐级降级，返回经 Pydantic 校验的对象。
 
     纯文本模式下解析失败会把错误回传给模型修复一次。
@@ -170,7 +172,7 @@ def invoke_structured(llm, schema: Type[T], messages: List, usage: Optional[dict
         try:
             runnable = llm.with_structured_output(schema, method=method, include_raw=True)
             result = runnable.invoke(messages)
-            accumulate_usage(usage, result.get('raw'))
+            accumulate_usage(usage, result.get('raw'), node)
             parsed = result.get('parsed')
             if parsed is not None:
                 return parsed
@@ -179,6 +181,8 @@ def invoke_structured(llm, schema: Type[T], messages: List, usage: Optional[dict
             raise
         except Exception as e:
             errors.append(f"{method}: {e}")
+        if usage is not None:
+            usage['structured_fallbacks'] = usage.get('structured_fallbacks', 0) + 1
 
     from langchain_core.messages import AIMessage, HumanMessage
 
@@ -188,7 +192,7 @@ def invoke_structured(llm, schema: Type[T], messages: List, usage: Optional[dict
     )]
     for _ in range(2):
         response = llm.invoke(prompt)
-        accumulate_usage(usage, response)
+        accumulate_usage(usage, response, node)
         text = _message_text(response)
         try:
             return schema.model_validate(_extract_json(text))
@@ -201,11 +205,34 @@ def invoke_structured(llm, schema: Type[T], messages: List, usage: Optional[dict
     raise RuntimeError("模型未能返回有效的结构化结果: " + " | ".join(str(e)[:200] for e in errors))
 
 
-def accumulate_usage(usage: Optional[dict], message):
+USAGE_FIELDS = ('calls', 'input_tokens', 'output_tokens', 'reasoning_tokens', 'cached_tokens', 'cost')
+
+
+def message_usage(message) -> dict:
+    """从一次模型回复中取出调用量；cost 仅 OpenRouter 回传（美元）。"""
+    meta = getattr(message, 'usage_metadata', None) or {}
+    raw = (getattr(message, 'response_metadata', None) or {}).get('token_usage') or {}
+    output_details = meta.get('output_token_details') or {}
+    input_details = meta.get('input_token_details') or {}
+    return {
+        'calls': 1,
+        'input_tokens': int(meta.get('input_tokens', 0) or 0),
+        'output_tokens': int(meta.get('output_tokens', 0) or 0),
+        'reasoning_tokens': int(output_details.get('reasoning', 0) or 0),
+        'cached_tokens': int(input_details.get('cache_read', 0) or 0),
+        'cost': float(raw.get('cost', 0) or 0),
+    }
+
+
+def accumulate_usage(usage: Optional[dict], message, node: str = ''):
+    """累加到 usage 总计，并按节点记到 usage['by_node'][node]。"""
     if usage is None or message is None:
         return
-    meta = getattr(message, 'usage_metadata', None) or {}
-    usage['calls'] = usage.get('calls', 0) + 1
-    usage['input_tokens'] = usage.get('input_tokens', 0) + int(meta.get('input_tokens', 0) or 0)
-    usage['output_tokens'] = usage.get('output_tokens', 0) + int(meta.get('output_tokens', 0) or 0)
+    delta = message_usage(message)
+    buckets = [usage]
+    if node:
+        buckets.append(usage.setdefault('by_node', {}).setdefault(node, {}))
+    for bucket in buckets:
+        for key in USAGE_FIELDS:
+            bucket[key] = bucket.get(key, 0) + delta[key]
 

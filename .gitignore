@@ -66,6 +66,7 @@ third_party/*
 Qwen3-TTS/*
 
 .env
+evals/role_assign/reports/
 .gitignore
 CosyVoiceDesktop_V1.1.7z
 CosyVoiceDesktop_V1.1.7z.baiduyun.uploading.cfg

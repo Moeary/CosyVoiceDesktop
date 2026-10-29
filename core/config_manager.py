@@ -23,6 +23,8 @@ class ConfigManager:
             "llm_agent_review_rounds": 1,
             "llm_agent_review_steps": 10,
             "llm_agent_auto_cast": True,
+            # 留空使用 core/role_agent/skills/novel-role-assign/SKILL.md
+            "llm_agent_skill_path": "",
             "default_speaker_name": "",
             "api_port": 9880,
             "api_host": "127.0.0.1",

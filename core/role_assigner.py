@@ -377,6 +377,12 @@ class RoleAssignmentService:
     def _assign_roles_with_agent(self, settings, segments, document_text, voice_configs, fallback_speaker, progress):
         """LangGraph 智能体：规则断句 → 规划角色表 → 分批标注 → 校验 → ReAct 校对 → 选角"""
         from .role_agent import RoleAgent
+        from .role_agent.skill import SkillError, load_skill
+
+        try:
+            skill = load_skill(self.config_manager.get('llm_agent_skill_path', '') or None)
+        except SkillError as e:
+            raise RoleAssignmentError(str(e)) from e
 
         speaker_names = list(voice_configs.keys())
         voice_config_dicts = []
@@ -391,6 +397,7 @@ class RoleAssignmentService:
             max_review_rounds=int(self.config_manager.get('llm_agent_review_rounds', 1) or 0),
             max_review_steps=int(self.config_manager.get('llm_agent_review_steps', 10) or 0),
             auto_cast=bool(self.config_manager.get('llm_agent_auto_cast', True)),
+            skill=skill,
         )
         try:
             state = agent.run(document_text, voice_config_dicts, fallback_speaker)
@@ -423,6 +430,7 @@ class RoleAssignmentService:
             'remaining_issues': state.get('issues', []),
             'agent_trace': state.get('trace', []),
             'usage': agent.usage,
+            'skill': skill.info(),
         }
 
     def _assign_roles_legacy(self, settings, segments, document_text, speaker_names, fallback_speaker):

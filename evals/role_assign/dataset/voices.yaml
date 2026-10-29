@@ -1,0 +1,12 @@
+# 所有用例共用的本地音色库（模拟用户在语音设置页配置的角色）
+fallback: 旁白-沉稳男声
+voices:
+  - {name: 旁白-沉稳男声, instruct_text: 用沉稳的说书人语气}
+  - {name: 少年男声, instruct_text: 活泼机灵的少年}
+  - {name: 青年男声, instruct_text: 清朗的青年男性}
+  - {name: 中年男声, instruct_text: 浑厚的中年男性}
+  - {name: 老年男声, instruct_text: 苍老沙哑的老人}
+  - {name: 温柔女声, instruct_text: 温柔的年轻女性}
+  - {name: 中年女声, instruct_text: 爽朗的中年女性}
+  - {name: 群体嘈杂, instruct_text: 多人起哄}
+  - {name: 电子合成音, instruct_text: 冷静的机械电子音}

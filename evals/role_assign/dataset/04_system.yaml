@@ -1,0 +1,36 @@
+id: system
+title: 系统流网文 · 系统提示与心理
+focus: [【】系统提示, 系统作为发声者, 心理与发誓, 选角给系统电子音]
+text: |-
+  第三章 签到
+  清晨六点，林默被一阵电子音吵醒。
+  【叮！每日签到成功，获得：初级剑术×1。】
+  林默揉了揉眼睛，心想：又是剑术，我一个送外卖的要剑术干什么？
+  “系统，能换成驾驶技能吗？”
+  【宿主权限不足，无法兑换。】
+  “那你倒是给我点有用的。”
+  楼下传来房东王阿姨的大嗓门：“小林！这个月房租什么时候交？”
+  “下周，王姨，下周一定！”
+  王阿姨哼了一声，脚步声渐渐远了。林默叹了口气，暗暗发誓：等我攒够钱，第一件事就是搬家。
+  【温馨提示：宿主当前存款为三百二十七元。】
+  他盯着那行字，半天没说出话来。
+roster:
+  - {name: 林默, aliases: [小林, 宿主]}
+  - {name: 王阿姨, aliases: [王姨, 房东, 房东王阿姨]}
+  - {name: 系统, aliases: [电子音], optional: true}
+gold:
+  - {match: 第三章 签到, category: [系统, 旁白]}
+  - {match: 叮！, category: [系统, 对话], speaker: 系统}
+  - {match: 每日签到成功, category: [系统, 对话], speaker: 系统}
+  - {match: 又是剑术, category: 心理, speaker: 林默}
+  - {match: 能换成驾驶技能吗, category: 对话, speaker: 林默}
+  - {match: 宿主权限不足, category: [系统, 对话], speaker: 系统}
+  - {match: 那你倒是给我点有用的, category: 对话, speaker: 林默}
+  - {match: 这个月房租什么时候交, category: 对话, speaker: 王阿姨}
+  - {match: 下周，王姨, category: 对话, speaker: 林默}
+  - {match: 等我攒够钱, category: 心理, speaker: 林默}
+  - {match: 宿主当前存款, category: [系统, 对话], speaker: 系统}
+casting:
+  林默: [青年男声]
+  王阿姨: [中年女声]
+  系统: [电子合成音]
