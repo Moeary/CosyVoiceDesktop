@@ -198,10 +198,14 @@ class RoleAgent:
         text = state['document_text']
         clipped = text[:MAX_PLAN_CHARS]
         header = f"（全文共 {len(text)} 字，以下为前 {len(clipped)} 字，后文的新角色由标注员补充）\n" if len(text) > len(clipped) else ''
-        plan = invoke_structured(self.llm, CastPlan, [
-            SystemMessage(content=PLANNER_PROMPT),
-            HumanMessage(content=header + clipped),
-        ], self.usage)
+        messages = [SystemMessage(content=PLANNER_PROMPT), HumanMessage(content=header + clipped)]
+        plan = invoke_structured(self.llm, CastPlan, messages, self.usage)
+        if not plan.characters and any(segment['in_quote'] for segment in state['segments']):
+            # 有对白却没给出角色，多为模型把角色写进了 notes；追问一次
+            messages.append(HumanMessage(
+                content=f"你上次的 characters 为空，但正文中有对白。你的备注是：{plan.notes}\n请把所有说话角色填入 characters 重新输出。"
+            ))
+            plan = invoke_structured(self.llm, CastPlan, messages, self.usage)
 
         roster = []
         seen = set()

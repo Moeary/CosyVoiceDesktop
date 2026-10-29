@@ -11,14 +11,14 @@ Category = Literal['旁白', '对话', '心理', '系统']
 
 class Character(BaseModel):
     name: str = Field(description="正文中的规范角色名，群体也可作为角色，如 众猴")
-    aliases: List[str] = Field(default_factory=list, description="正文里出现过的别名、称呼、代词指代，如 美猴王、石猴")
+    aliases: List[str] = Field(default_factory=list, description="正文里出现过的别名、称呼、外号，如 美猴王；不含 我/他/我等 这类代词泛称")
     gender: Literal['男', '女', '群体', '未知'] = '未知'
     age: Literal['儿童', '少年', '青年', '中年', '老年', '未知'] = '未知'
     traits: str = Field(default='', description="不超过 20 字的身份/性格/嗓音特征")
 
 
 class CastPlan(BaseModel):
-    characters: List[Character] = Field(default_factory=list, description="所有会说话或有心理活动的角色")
+    characters: List[Character] = Field(description="所有会说话或有心理活动的角色")
     pov: Literal['第一人称', '第三人称'] = '第三人称'
     narrator_character: str = Field(default='', description="第一人称叙述时“我”对应的角色名，否则留空")
     notes: str = Field(default='', description="给后续标注员的注意事项，不超过 80 字")
@@ -47,7 +47,7 @@ class VoiceMapping(BaseModel):
 
 
 class VoiceCasting(BaseModel):
-    mappings: List[VoiceMapping] = Field(default_factory=list)
+    mappings: List[VoiceMapping] = Field(description="每个角色一条")
 
 
 # ---------- Reviewer：ReAct 工具 ----------
