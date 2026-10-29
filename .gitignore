@@ -65,6 +65,7 @@ python_env/*
 third_party/*
 Qwen3-TTS/*
 
+.env
 .gitignore
 CosyVoiceDesktop_V1.1.7z
 CosyVoiceDesktop_V1.1.7z.baiduyun.uploading.cfg

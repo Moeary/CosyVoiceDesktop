@@ -10,10 +10,15 @@ start = "python main.py"
 api = "python core/api.py --config config/哆啦A梦.json --port 9880"
 test = "python -m unittest discover test -p \"test_*.py\""
 
+[pypi-options]
+# openai-whisper 的 sdist 构建脚本依赖 pkg_resources（setuptools>=81 已移除），复用环境内 setuptools<81 构建
+no-build-isolation = ["openai-whisper"]
+
 [dependencies]
 python = "3.12.*"
 ffmpeg = "*"
 modelscope = ">=1.33.0,<2"
+setuptools = "<81"
 
 [pypi-dependencies]
 torch = { url = "https://mirrors.aliyun.com/pytorch-wheels/cu128/torch-2.7.0%2Bcu128-cp312-cp312-win_amd64.whl" }
@@ -38,11 +43,10 @@ onnxruntime = "==1.18.0"
 openai-whisper = "==20231117"
 protobuf = "==4.25"
 pyarrow = "==18.1.0"
-pydantic = "==2.7.0"
+pydantic = ">=2.7.4,<3"
 pyworld = "==0.3.4"
 rich = "==13.7.1"
 soundfile = "==0.12.1"
-setuptools = "<81"
 transformers = "==4.51.3"
 uvicorn = "==0.30.0"
 python-multipart = ">=0.0.9,<1"
@@ -53,3 +57,7 @@ grpcio-tools = ">=1.62.3, <2"
 pyqt-fluent-widgets = ">=1.10.2, <2"
 pyqt5 = ">=5.15.11, <6"
 x_transformers = ">=1.0.0"
+langgraph = ">=0.6, <2"
+langchain-openai = ">=0.3, <2"
+python-dotenv = ">=1.0, <2"
+requests = ">=2.31, <3"
