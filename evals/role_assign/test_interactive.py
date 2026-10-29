@@ -10,7 +10,7 @@ import numpy as np
 import openai
 import soundfile
 
-from core.role_agent import RoleAgent
+from core.role_agent import RoleAgent, checks
 from core.role_agent.graph import apply_roster_edits, mentioned_segments
 from core.role_agent.role_table import (
     best_clip_per_speaker, build_role_table, match_characters, scan_voice_library, speaker_to_config,
@@ -177,6 +177,13 @@ class SessionTest(unittest.TestCase):
         feedback = '「签签了」是赵德厚说的；#3 和 “安静！安静！” 也不对；「的」太短；#999 不存在'
         self.assertEqual(mentioned_segments(feedback, segments),
                          sorted({3, seg_id(segments, '签……签了'), seg_id(segments, '安静！安静！')}))
+
+    def test_lead_subject_uses_last_clause(self):
+        # 实测发现：取句首主语会把外婆的话判给“我”、把孩子们齐声喊的话判给王婶，且会被自动采纳
+        roster = [{'name': n, 'aliases': a} for n, a in [('我', ['小满']), ('外婆', ['奶奶']), ('王婶', []), ('两个孩子', [])]]
+        self.assertEqual(checks.lead_subject('我把最后一摞碗放进橱柜，外婆在堂屋里喊：', roster), '外婆')
+        self.assertEqual(checks.lead_subject('王婶身后还跟着她家的两个孩子，挤在门口直嚷嚷：', roster), '')
+        self.assertEqual(checks.lead_subject('外婆拄着拐杖站起来，看了我一眼：', roster), '外婆')
 
     def test_roster_edits(self):
         roster = [{'name': '蒙面人', 'aliases': ['黑衣人']}, {'name': '柳随风', 'aliases': []}, {'name': '甲', 'aliases': []}]

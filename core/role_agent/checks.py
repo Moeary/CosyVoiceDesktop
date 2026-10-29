@@ -7,6 +7,7 @@
 - unused_characters 角色表里从未发言的角色（多为故事里被讲述的人物或规划阶段的误报）
 """
 
+import re
 from typing import Dict, List, Optional, Tuple
 
 # 提示语开头可跳过的连接词
@@ -15,6 +16,8 @@ LEAD_ADVERBS = ('这时', '于是', '随即', '接着', '然后', '只见', '忽
 CROWD_SUBJECTS = ('众人', '大家', '人群里有人', '人群中有人', '有人', '人群', '众')
 # 引号前的提示语以这些标点结尾才算“提示语 + 引号”
 LEAD_ENDINGS = ('：', ':', '，', ',')
+# 提示语里引出另一个人的词：出现时无主语的末句不能沿用首句主语
+INTRODUCERS = ('跟着', '带着', '领着', '身后', '身边', '旁边', '对面', '孩子', '一个人', '有个人')
 
 
 def is_group(character: dict) -> bool:
@@ -52,6 +55,31 @@ def subject_at_start(text: str, roster: List[dict]) -> str:
     return ''
 
 
+def lead_subject(lead: str, roster: List[dict]) -> str:
+    """引号前提示语（以冒号/逗号结尾）的说话人：取最后一个分句的主语。
+
+    “我把碗放进橱柜，外婆在堂屋里喊：” → 外婆；末句没有主语时沿用首句主语，
+    但前文又引出了别的人（“王婶身后跟着两个孩子，挤在门口直嚷嚷：”）就无法确定，返回空串。
+    """
+    body = lead.rstrip().rstrip('：:，,').strip()
+    clauses = [c for c in re.split(r'[，,；;。！？!?]', body) if c.strip()]
+    if not clauses:
+        return ''
+    last = subject_at_start(clauses[-1], roster)
+    if last or len(clauses) == 1:
+        return last
+    first = subject_at_start(clauses[0], roster)
+    if not first:
+        return ''
+    others = [
+        name for c in roster if c['name'] != first
+        for name in [c['name'], *c.get('aliases', [])] if len(name) >= 2 and name in body
+    ]
+    if others or any(word in body for word in INTRODUCERS):
+        return ''
+    return first
+
+
 def attribution_cues(segments: List[dict], roster: List[dict]) -> Dict[int, Tuple[str, str]]:
     """引号片段 → (提示语指向的角色, 证据原文)。
 
@@ -68,7 +96,7 @@ def attribution_cues(segments: List[dict], roster: List[dict]) -> Dict[int, Tupl
             lead = prev['text'].rstrip()
             if lead.endswith(LEAD_ENDINGS):
                 rank = 0 if lead.endswith(('：', ':')) else 2
-                candidates.append((rank, subject_at_start(lead, roster), lead))
+                candidates.append((rank, lead_subject(lead, roster), lead))
         if nxt and not nxt['in_quote'] and nxt['paragraph'] == segment['paragraph']:
             candidates.append((1, subject_at_start(nxt['text'], roster), nxt['text']))
         candidates = sorted(c for c in candidates if c[1])
