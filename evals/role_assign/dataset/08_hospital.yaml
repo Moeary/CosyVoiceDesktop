@@ -1,0 +1,58 @@
+id: hospital
+title: 外婆的生日 · 回忆与引号里的心声
+difficulty: hard
+focus: [引号内的心声, 对读者说话的旁白, 视频通话另一端, 英文对白, 回忆中的童年对白, 第一人称感悟]
+text: |-
+  你可能不信，我第一次见到外婆哭，是在她九十岁生日那天。
+  那天病房里挤满了人。舅舅忙着切蛋糕，表姐举着手机录像，护士小周进来量了三次血压。
+  “外婆，许个愿吧。”表姐把蛋糕推到床前。
+  外婆没说话，只是盯着窗外。我在心里对自己说：“别急，她今天精神不好。”
+  这时舅舅的手机响了，是在国外的小姨打来的视频。屏幕里，小姨身后站着一个金发的男人，笑着挥手：“Happy birthday, grandma!”
+  “这是你小姨父，”舅舅凑到外婆耳边，“马克，美国人。”
+  “Nice to meet you!”马克又说了一遍。
+  外婆眯着眼看了半天，突然开口：“阿芳，你瘦了。”
+  屏幕那头的小姨一下子红了眼眶：“妈，我没瘦，是镜头的问题。”
+  我忽然想起很多年前的一个夏天。那时候我七岁，外婆牵着我在河边走。
+  “囡囡，看见那棵柳树没有？你小姨小时候，就是从那儿掉进河里的。”
+  “那她怎么上来的？”
+  “我跳下去捞的呀。”外婆笑得很得意，“你外公在岸上急得直跺脚，他不会水。”
+  那个夏天的蝉声，我到现在还记得。
+  回过神来，视频已经挂了。外婆的眼泪顺着皱纹往下淌，谁也劝不住。
+  护士小周轻声问：“要不要我去叫医生？”
+  “不用。”外婆摆摆手，声音很轻，“我就是……想她了。”
+  后来我才知道，那是小姨出国的第十二年。外婆一直没告诉任何人，她每天晚上都会翻出小姨小时候的照片看一会儿。
+  我想，等我老了，大概也会这样吧。
+roster:
+  - {name: 我, aliases: [叙述者, 囡囡]}
+  - {name: 外婆, aliases: [妈, 老人]}
+  - {name: 表姐, aliases: []}
+  - {name: 舅舅, aliases: []}
+  - {name: 小姨, aliases: [阿芳]}
+  - {name: 马克, aliases: [小姨父, 金发的男人, 金发男人]}
+  - {name: 护士小周, aliases: [小周, 护士, 周护士]}
+  - {name: 外公, aliases: [], optional: true}
+gold:
+  - {match: 许个愿吧, category: 对话, speaker: 表姐}
+  - {match: 别急，她今天精神不好, category: 心理, speaker: 我}
+  - {match: Happy birthday, category: 对话, speaker: 马克}
+  - {match: 这是你小姨父, category: 对话, speaker: 舅舅}
+  - {match: 马克，美国人, category: 对话, speaker: 舅舅}
+  - {match: Nice to meet you, category: 对话, speaker: 马克}
+  - {match: 阿芳，你瘦了, category: 对话, speaker: 外婆}
+  - {match: 我没瘦, category: 对话, speaker: 小姨}
+  - {match: 看见那棵柳树没有, category: 对话, speaker: 外婆}
+  - {match: 那她怎么上来的, category: 对话, speaker: 我}
+  - {match: 我跳下去捞的呀, category: 对话, speaker: 外婆}
+  - {match: 你外公在岸上, category: 对话, speaker: 外婆}
+  - {match: 要不要我去叫医生, category: 对话, speaker: 护士小周}
+  - {match: “不用。”, category: 对话, speaker: 外婆}
+  - {match: 想她了, category: 对话, speaker: 外婆}
+  - {match: 等我老了, category: [旁白, 心理], speaker: 我}
+casting:
+  我: [温柔女声]
+  外婆: [中年女声, ""]
+  表姐: [温柔女声]
+  舅舅: [中年男声]
+  小姨: [温柔女声, 中年女声]
+  马克: [青年男声, 中年男声]
+  护士小周: [温柔女声]

@@ -7,8 +7,8 @@ QUOTE_PAIRS = {'“': '”', '「': '」', '『': '』', '"': '"'}
 TERMINATORS = set('。！？!?；;…')
 TRAILING_CLOSERS = set('）)】]’\'》>')
 DIALOGUE_LEADS = set('：:，,。！？!?；;…—')
-# 冒号前以这些字收尾时，视为无引号发言/心理的提示语
-SPEECH_VERBS = set('道说想问答叫喊骂笑叹念忖思')
+# 冒号前以这些字收尾时，视为无引号发言/心理的提示语（Skill 参数 speech_lead_verbs 可覆盖）
+SPEECH_VERBS = '道说想问答叫喊骂笑叹念忖思'
 PUNCT_ONLY = set('，,、。！？!?；;：:…—-～~·”」』’）)】]》"\' \t　')
 
 # 引号内文本超过该长度时，允许在句末标点处继续切分
@@ -23,12 +23,12 @@ def _is_punct_only(text: str) -> bool:
     return all(char in PUNCT_ONLY for char in text)
 
 
-def _is_speech_lead(full_text: str, seg_start: int, colon: int) -> bool:
+def _is_speech_lead(full_text: str, seg_start: int, colon: int, verbs: str = SPEECH_VERBS) -> bool:
     """冒号前是否为“某某道/想/问”之类的发言提示语，且冒号后还有内容。"""
     if colon + 1 >= len(full_text) or full_text[colon + 1] in '\n' or full_text[colon + 1] in QUOTE_PAIRS:
         return False
     lead = full_text[seg_start:colon].rstrip()
-    return bool(lead) and lead[-1] in SPEECH_VERBS
+    return bool(lead) and lead[-1] in verbs
 
 
 def _inline_quote_end(full_text: str, index: int, line_start: int, line_end: int) -> int:
@@ -51,7 +51,7 @@ def _inline_quote_end(full_text: str, index: int, line_start: int, line_end: int
     return close + 1
 
 
-def split_segments(full_text: str) -> List[dict]:
+def split_segments(full_text: str, speech_verbs: str = SPEECH_VERBS) -> List[dict]:
     """按段落、引号与句末标点断句。
 
     返回的每个片段包含 id(从 1 开始)、start、end（full_text 中的半开区间）、
@@ -134,7 +134,7 @@ def split_segments(full_text: str) -> List[dict]:
                 seg_start = end
                 index = end
                 continue
-            elif char in '：:' and _is_speech_lead(full_text, seg_start, index):
+            elif char in '：:' and _is_speech_lead(full_text, seg_start, index, speech_verbs):
                 # “石猴暗想：这里……” 这类无引号的发言/心理，在冒号后断开，提示语归旁白
                 flush(seg_start, index + 1, False)
                 seg_start = index + 1

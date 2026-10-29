@@ -74,7 +74,7 @@ def estimate_costs(cases, skill, prices, model, judge_model, trials, judge=True)
     p_judge = prices.get(judge_model) or {'input': 1e-6, 'output': 5e-6}
     estimates = {}
     for case in cases:
-        segments = split_segments(case['text'])
+        segments = split_segments(case['text'], skill.params['speech_lead_verbs'])
         chunks = chunk_segments(segments, skill.params['chunk_max_items'], skill.params['chunk_max_chars'])
         chars = len(case['text'])
         tokens_in = 900 + chars * 1.2 + len(chunks) * 1100 + len(segments) * 30 + 900
@@ -137,6 +137,7 @@ def render_markdown(config: dict, summary: dict, analysis: dict) -> str:
         '',
         f"其他：类别准确率 {_pct(o['category_acc'])}，角色表精确率 {_pct(o['roster_precision'])}，"
         f"两两一致率 {_pct(o['pairwise_agreement'])}，角色表一致性 (Jaccard) {_pct(o['roster_jaccard'])}，"
+        f"规范名一致率 {_pct(o.get('naming_consistency'))}，失败 {o.get('failed_runs', 0)} 次，结构化降级 {o.get('structured_fallbacks', 0)} 次，"
         f"每段 {_num(o['tokens_per_segment'], 0)} token，推理 token 占输出 {_pct(o['reasoning_share'])}，"
         f"平均每次 ${_num(o['cost_per_run'], 4)}、{_num(o['latency_s'], 1)} 秒，裁判总分 {_num(o['judge_overall'], 1)}/10。",
         '',
@@ -198,6 +199,8 @@ def render_markdown(config: dict, summary: dict, analysis: dict) -> str:
         if c['stability'].get('unstable_segments'):
             lines.append('- 不稳定片段：' + '；'.join(
                 f"#{u['id']} {' vs '.join(u['variants'])}" for u in c['stability']['unstable_segments'][:6]))
+        if c['stability'].get('name_variants'):
+            lines.append('- 规范名漂移：' + '；'.join(f"{g}：{' / '.join(v)}" for g, v in c['stability']['name_variants'].items()))
         if c['roster']['split'] or c['roster']['extra']:
             lines.append(f"- 角色表：拆分 {c['roster']['split'] or '无'}，多余 {c['roster']['extra'] or '无'}")
         if c['casting_wrong']:

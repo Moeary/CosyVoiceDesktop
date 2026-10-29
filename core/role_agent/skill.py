@@ -18,6 +18,9 @@ DEFAULT_PARAMS: Dict[str, Any] = {
     'max_plan_chars': 30000,
     'max_issues_in_prompt': 40,
     'review_max_tokens': 2048,
+    'speech_lead_verbs': '道说想问答叫喊骂笑叹念忖思',
+    # 为 系统 单独选角（系统流的电子音）；关闭时 系统 与旁白共用默认音色
+    'cast_system_speaker': False,
 }
 
 

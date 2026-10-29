@@ -438,6 +438,15 @@ def summarize(cases: List[dict], trials: List[dict], judgments: List[dict], expe
         'all_agree_rate': _mean([c['stability'].get('all_agree_rate') for c in ok_cases]),
         'pairwise_agreement': _mean([c['stability'].get('pairwise_agreement') for c in ok_cases]),
         'roster_jaccard': _mean([c['stability'].get('roster_jaccard') for c in ok_cases]),
+        'raw_roster_jaccard': _mean([c['stability'].get('raw_roster_jaccard') for c in ok_cases]),
+        'naming_consistency': _mean([c['stability'].get('naming_consistency') for c in ok_cases]),
+        'label_acc_std': _mean([c['label_acc']['std'] for c in ok_cases]),
+        'failed_runs': sum(c['failed'] for c in per_case.values()),
+        'structured_fallbacks': sum(c['efficiency']['structured_fallbacks'] for c in ok_cases),
+        'cost_cv': _mean([(c['efficiency']['cost']['std'] / c['efficiency']['cost']['mean'])
+                          if c['efficiency']['cost']['mean'] else None for c in ok_cases]),
+        'latency_cv': _mean([(c['efficiency']['latency_s']['std'] / c['efficiency']['latency_s']['mean'])
+                             if c['efficiency']['latency_s']['mean'] else None for c in ok_cases]),
         'review_trigger_rate': _mean([c['review']['trigger_rate'] for c in ok_cases]),
         'review_fixed': sum(c['review']['fixed'] for c in ok_cases),
         'review_broken': sum(c['review']['broken'] for c in ok_cases),

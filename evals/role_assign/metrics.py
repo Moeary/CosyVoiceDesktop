@@ -172,7 +172,8 @@ def score_trial(case: dict, state: dict) -> dict:
             continue
         voice = (mapping.get(used[character]) or {}).get('voice', '')
         casting_total += 1
-        if voice in accepted or (not accepted and not voice):
+        # 列表里的空字符串表示“留空待手动指定”也可以接受
+        if voice in accepted or (not voice and ('' in accepted or not accepted)):
             casting_ok += 1
         else:
             casting_wrong.append(f"{character}→{voice or '未指定'}")
@@ -250,10 +251,26 @@ def stability(case: dict, states: List[dict]) -> dict:
         {'id': i, 'variants': sorted({f"{c}/{s}" for c, s in (k[i] for k in keyed)})}
         for i in seg_ids if len({k[i] for k in keyed}) > 1
     ]
+
+    # 命名一致性：同一金标准角色在各次运行里用的原始名字（界面按原始名字分组，名字一变分组就变）
+    raw_names: Dict[str, set] = {}
+    for state in states:
+        roster = state.get('roster', [])
+        for label in state['labels'].values():
+            if label['category'] in ('对话', '心理'):
+                gold = canonical_speaker(label['speaker'], case, roster)
+                if gold in gold_names(case):
+                    raw_names.setdefault(gold, set()).add(label['speaker'])
+    raw_rosters = [{e['name'] for e in s.get('roster', [])} for s in states]
     return {
         'all_agree_rate': all_agree / len(seg_ids) if seg_ids else 0.0,
         'pairwise_agreement': pairwise,
         'roster_jaccard': jaccard,
+        'raw_roster_jaccard': statistics.mean(
+            len(a & b) / len(a | b) if a | b else 1.0 for a, b in combinations(raw_rosters, 2)),
+        'naming_consistency': (sum(1 for names in raw_names.values() if len(names) == 1) / len(raw_names)
+                               if raw_names else 1.0),
+        'name_variants': {gold: sorted(names) for gold, names in raw_names.items() if len(names) > 1},
         'unstable_segments': unstable,
     }
 

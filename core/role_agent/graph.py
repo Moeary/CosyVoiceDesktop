@@ -145,7 +145,7 @@ class RoleAgent:
     # ---------- 节点 ----------
 
     def segment(self, state: RoleAgentState) -> dict:
-        segments = split_segments(state['document_text'])
+        segments = split_segments(state['document_text'], self.p['speech_lead_verbs'])
         if not segments:
             raise ValueError("没有可分配的文本内容")
         chunks = chunk_segments(segments, self.p['chunk_max_items'], self.p['chunk_max_chars'])
@@ -514,12 +514,15 @@ class RoleAgent:
         pending = []
         normalized_voices = {_normalize_name(name): name for name in voice_names}
         for speaker in used:
-            if speaker in {NARRATOR, SYSTEM}:
+            if speaker == NARRATOR or (speaker == SYSTEM and not self.p['cast_system_speaker']):
                 mapping[speaker] = {'voice': fallback, 'reason': '旁白/系统使用默认角色', 'source': 'rule'}
                 continue
             if speaker == UNKNOWN:
                 continue
-            character = next((c for c in roster if c['name'] == speaker), {'name': speaker, 'aliases': []})
+            default = {'name': speaker, 'aliases': []}
+            if speaker == SYSTEM:
+                default['traits'] = '系统提示、电子播报'
+            character = next((c for c in roster if c['name'] == speaker), default)
             matched = ''
             for name in [speaker] + list(character.get('aliases', [])):
                 matched = normalized_voices.get(_normalize_name(name), '')

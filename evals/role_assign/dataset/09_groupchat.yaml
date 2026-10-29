@@ -1,0 +1,57 @@
+id: groupchat
+title: 家族群 · 聊天消息与语音
+difficulty: hard
+focus: [【】聊天消息归发送者, 系统通知, 语音消息, 消息被拆成两段, 打字内容, 无标记内心独白]
+text: |-
+  周五晚上十一点，“相亲相爱一家人”群里突然热闹起来。
+  【大舅：明天中午全家去老地方吃饭，给你外公过八十大寿，一个都不许缺席！】
+  【二姨：收到收到[玫瑰][玫瑰]】
+  【表弟阿浩：我明天要加班……】
+  【大舅：加什么班？你外公八十了！】
+  我盯着屏幕，手指悬在键盘上半天没动。去，就要面对二姨的“什么时候结婚”；不去，大舅能念叨我一整年。
+  妻子凑过来看了一眼：“又是你大舅？”
+  “嗯，明天中午。”
+  “那我把下午的瑜伽课推了。”她打了个哈欠，“你回一下吧，别让人家等。”
+  我打了“收到”两个字，又删掉，换成了“好的大舅，一定到”。
+  【系统消息：二姨拍了拍你】
+  【二姨：小陈啊，你媳妇明天也来吧？正好让大家看看。】
+  妻子在旁边笑出了声。我瞪了她一眼，心想：笑什么，明天被问的又不只是我。
+  手机又震了一下。这次是语音，外公的声音从听筒里慢慢地传出来：
+  “小陈啊，你们忙就别来了，外公不讲究这些。”
+  我愣了一会儿，把手机递给妻子。
+  “去吧。”她轻声说，“老人家嘴上说不讲究，心里比谁都盼着。”
+roster:
+  - {name: 我, aliases: [小陈, 叙述者]}
+  - {name: 妻子, aliases: [媳妇, 老婆, 小陈媳妇]}
+  - {name: 大舅, aliases: []}
+  - {name: 二姨, aliases: []}
+  - {name: 阿浩, aliases: [表弟阿浩, 表弟]}
+  - {name: 外公, aliases: []}
+  - {name: 系统, aliases: [系统消息], optional: true}
+gold:
+  - {match: 一个都不许缺席, category: 对话, speaker: 大舅}
+  - {match: 收到收到, category: 对话, speaker: 二姨}
+  - {match: 我明天要加班, category: 对话, speaker: 阿浩}
+  - {match: 加什么班, category: 对话, speaker: 大舅}
+  - {match: 你外公八十了, category: 对话, speaker: 大舅}
+  - {match: 去，就要面对二姨, category: [旁白, 心理], speaker: 我}
+  - {match: 大舅能念叨我一整年, category: [旁白, 心理], speaker: 我}
+  - {match: 又是你大舅, category: 对话, speaker: 妻子}
+  - {match: 嗯，明天中午, category: 对话, speaker: 我}
+  - {match: 瑜伽课推了, category: 对话, speaker: 妻子}
+  - {match: 你回一下吧, category: 对话, speaker: 妻子}
+  - {match: 好的大舅，一定到, category: [对话, 旁白], speaker: 我}
+  - {match: 二姨拍了拍你, category: [系统, 旁白]}
+  - {match: 你媳妇明天也来吧, category: 对话, speaker: 二姨}
+  - {match: 正好让大家看看, category: 对话, speaker: 二姨}
+  - {match: 明天被问的又不只是我, category: 心理, speaker: 我}
+  - {match: 你们忙就别来了, category: 对话, speaker: 外公}
+  - {match: “去吧。”, category: 对话, speaker: 妻子}
+  - {match: 心里比谁都盼着, category: 对话, speaker: 妻子}
+casting:
+  我: [青年男声]
+  妻子: [温柔女声]
+  大舅: [中年男声]
+  二姨: [中年女声]
+  阿浩: [青年男声, 少年男声]
+  外公: [老年男声]

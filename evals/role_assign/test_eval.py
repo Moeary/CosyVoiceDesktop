@@ -1,7 +1,11 @@
 """评测框架自检：假模型驱动整条评测图，不访问网络、不花钱。"""
 
+import contextlib
+import io
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
@@ -10,7 +14,7 @@ from core.role_agent.schemas import CastPlan, Character, ChunkLabels, SegmentLab
 from core.role_agent.skill import load_skill, parse_markdown_sections
 from core.role_agent.segmenter import split_segments
 
-from . import metrics
+from . import compare, metrics
 from .pipeline import Analysis, CostLedger, EvalPipeline, JudgeVerdict, SkillEdit
 from .run import render_markdown
 
@@ -88,6 +92,9 @@ class DatasetTest(unittest.TestCase):
         skill = load_skill()
         self.assertTrue(all(skill.prompts[k] for k in ('planner', 'executor', 'reviewer', 'caster')))
         self.assertEqual(skill.params['chunk_max_items'], 40)
+        self.assertIsInstance(skill.params['cast_system_speaker'], bool)
+        v1 = load_skill(Path(skill.path).parent / 'history' / 'SKILL.v1.md')
+        self.assertEqual((v1.version, v1.params['cast_system_speaker']), ('1', False))
         self.assertEqual(load_skill(overrides={'low_confidence': 0.99}).params['low_confidence'], 0.99)
         meta, sections = parse_markdown_sections('---\nname: x\n---\n说明\n## a\nA\n## b\nB')
         self.assertEqual((meta['name'], sections), ('x', {'a': 'A', 'b': 'B'}))
@@ -166,6 +173,18 @@ class PipelineTest(unittest.TestCase):
         config = {'started': '-', 'elapsed_s': 1, 'skill': load_skill().info(), 'overrides': {}, 'model': 'fake',
                   'judge_model': 'fake', 'trials': 2}
         self.assertIn('指标看板', render_markdown(config, result['summary'], result['analysis']))
+
+        # 报告落盘后可被 compare 重新汇总（JSON 往返后片段 id 变成字符串）
+        report = {'config': config, 'trials': result['trials'], 'judgments': result['judgments']}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'report.json'
+            path.write_text(json.dumps(report, ensure_ascii=False, default=str), encoding='utf-8')
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(compare.main(['--base', str(path), '--candidate', str(path),
+                                               '--group', '茶馆=teahouse', '--out', str(Path(tmp) / 'c.md')]), 0)
+            text = (Path(tmp) / 'c.md').read_text(encoding='utf-8')
+        self.assertIn('| 片段准确率 | 100.0% | 100.0% | = |', text)
+        self.assertIn('## 总体 · 茶馆', text)
 
     def test_budget_guard_skips(self):
         result, ledger = self.run_pipeline(0.003)
