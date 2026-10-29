@@ -288,22 +288,13 @@ class CosyVoiceProApp(FluentWindow):
 
         segments = self.text_interface.get_assignable_blocks()
 
-        if not self.config_manager.get("llm_base_url", ""):
+        from core.role_agent.llm import LLMConfigError, resolve_llm_settings
+        try:
+            resolve_llm_settings(self.config_manager)
+        except LLMConfigError as e:
             InfoBar.warning(
                 title="缺少配置",
-                content="请先在设置页面填写 LLM Base URL",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=3000,
-                parent=self
-            )
-            return
-
-        if not self.config_manager.get("llm_model", ""):
-            InfoBar.warning(
-                title="缺少配置",
-                content="请先在设置页面填写 LLM 模型名称",
+                content=str(e),
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,
@@ -323,6 +314,7 @@ class CosyVoiceProApp(FluentWindow):
         )
         self.role_assign_worker.success.connect(self.on_role_assignment_success)
         self.role_assign_worker.error.connect(self.on_role_assignment_error)
+        self.role_assign_worker.progress.connect(self.text_interface.ai_assign_button.setText)
         self.role_assign_worker.start()
 
     def on_role_assignment_success(self, result: dict):
@@ -366,7 +358,11 @@ class CosyVoiceProApp(FluentWindow):
 
         InfoBar.success(
             title="分析完成",
-            content=f"AI 已完成 {len(assignments)} 个段落的全文分析，结果已显示在右侧 AI 分组控制台",
+            content=(
+                f"AI 已完成 {len(assignments)} 个段落的全文分析，结果已显示在右侧 AI 分组控制台"
+                + (f"；识别角色 {len(result['roster'])} 个" if result.get('roster') else "")
+                + (f"，{len(result['remaining_issues'])} 处仍建议人工确认" if result.get('remaining_issues') else "")
+            ),
             orient=Qt.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,

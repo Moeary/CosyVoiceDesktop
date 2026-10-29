@@ -123,6 +123,28 @@ class SettingsInterface(QWidget):
         auto_apply_layout.addWidget(self.llm_auto_apply_switch)
         layout.addLayout(auto_apply_layout)
 
+        agent_mode_layout = QHBoxLayout()
+        agent_mode_label = BodyLabel("LangGraph 智能体模式（规划角色表 + 分批标注 + ReAct 校对）")
+        self.llm_agent_mode_switch = SwitchButton()
+        self.llm_agent_mode_switch.checkedChanged.connect(
+            lambda checked: self.config_manager.set("llm_agent_mode", checked)
+        )
+        agent_mode_layout.addWidget(agent_mode_label)
+        agent_mode_layout.addStretch()
+        agent_mode_layout.addWidget(self.llm_agent_mode_switch)
+        layout.addLayout(agent_mode_layout)
+
+        auto_cast_layout = QHBoxLayout()
+        auto_cast_label = BodyLabel("智能体按角色特征自动建议音色")
+        self.llm_auto_cast_switch = SwitchButton()
+        self.llm_auto_cast_switch.checkedChanged.connect(
+            lambda checked: self.config_manager.set("llm_agent_auto_cast", checked)
+        )
+        auto_cast_layout.addWidget(auto_cast_label)
+        auto_cast_layout.addStretch()
+        auto_cast_layout.addWidget(self.llm_auto_cast_switch)
+        layout.addLayout(auto_cast_layout)
+
         self.default_speaker_edit = self.create_line_setting(
             layout,
             "默认角色名称",
@@ -134,6 +156,8 @@ class SettingsInterface(QWidget):
         llm_tip = BodyLabel(
             "文本页的“AI分配角色”会调用 OpenAI 兼容 Chat Completions 接口，"
             "结果会显示在文本页右侧的角色控制台；自动模式会直接写入角色标签。"
+            "API Key 留空时会读取项目根目录 .env 中的 OPENROUTER_API_KEY，并默认使用 OpenRouter。"
+            "智能体模式的 ReAct 校对需要模型支持工具调用，不支持时会自动跳过。"
         )
         llm_tip.setWordWrap(True)
         llm_tip.setStyleSheet("color: gray; font-size: 12px;")
@@ -202,6 +226,8 @@ class SettingsInterface(QWidget):
         self.min_text_spin.blockSignals(True)
         self.llm_timeout_spin.blockSignals(True)
         self.llm_auto_apply_switch.blockSignals(True)
+        self.llm_agent_mode_switch.blockSignals(True)
+        self.llm_auto_cast_switch.blockSignals(True)
         try:
             auto_load = self.config_manager.get("auto_load_model", False)
             self.auto_load_switch.setChecked(auto_load)
@@ -214,6 +240,8 @@ class SettingsInterface(QWidget):
             self.llm_model_edit.setText(self.config_manager.get("llm_model", ""))
             self.llm_timeout_spin.setValue(self.config_manager.get("llm_timeout_sec", 60))
             self.llm_auto_apply_switch.setChecked(self.config_manager.get("llm_auto_apply", False))
+            self.llm_agent_mode_switch.setChecked(self.config_manager.get("llm_agent_mode", True))
+            self.llm_auto_cast_switch.setChecked(self.config_manager.get("llm_agent_auto_cast", True))
             self.default_speaker_edit.setText(self.config_manager.get("default_speaker_name", ""))
             self.output_path_edit.setText(self.config_manager.get("output_dir", "./output"))
         finally:
@@ -221,6 +249,8 @@ class SettingsInterface(QWidget):
             self.min_text_spin.blockSignals(False)
             self.llm_timeout_spin.blockSignals(False)
             self.llm_auto_apply_switch.blockSignals(False)
+            self.llm_agent_mode_switch.blockSignals(False)
+            self.llm_auto_cast_switch.blockSignals(False)
 
     def save_settings(self):
         self.config_manager.config.update({
@@ -229,6 +259,8 @@ class SettingsInterface(QWidget):
             "llm_model": self.llm_model_edit.text().strip(),
             "llm_timeout_sec": self.llm_timeout_spin.value(),
             "llm_auto_apply": self.llm_auto_apply_switch.isChecked(),
+            "llm_agent_mode": self.llm_agent_mode_switch.isChecked(),
+            "llm_agent_auto_cast": self.llm_auto_cast_switch.isChecked(),
             "default_speaker_name": self.default_speaker_edit.text().strip(),
             "output_dir": self.output_path_edit.text().strip(),
             "auto_load_model": self.auto_load_switch.isChecked(),

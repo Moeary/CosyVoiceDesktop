@@ -81,6 +81,7 @@ class RoleAssignmentWorker(QThread):
     """后台角色分配线程"""
     success = pyqtSignal(dict)
     error = pyqtSignal(str)
+    progress = pyqtSignal(str)
 
     def __init__(self, config_manager, segments, document_text, voice_configs):
         super().__init__()
@@ -94,7 +95,9 @@ class RoleAssignmentWorker(QThread):
             from .role_assigner import RoleAssignmentService
 
             service = RoleAssignmentService(self.config_manager)
-            result = service.assign_roles(self.segments, self.document_text, self.voice_configs)
+            result = service.assign_roles(
+                self.segments, self.document_text, self.voice_configs, progress=self.progress.emit
+            )
             self.success.emit(result)
         except Exception as e:
             self.error.emit(str(e))

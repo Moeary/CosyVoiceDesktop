@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Dict, List, Any
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
@@ -346,7 +346,13 @@ class RoleAssignmentService:
             error_text = str(fallback_response.status_code)
         raise RoleAssignmentError(f"LLM 请求失败: {fallback_response.status_code} {error_text}")
 
-    def assign_roles(self, segments: List[dict], document_text: str, voice_configs: Dict[str, Any]) -> dict:
+    def assign_roles(
+        self,
+        segments: List[dict],
+        document_text: str,
+        voice_configs: Dict[str, Any],
+        progress: Optional[Callable[[str], None]] = None,
+    ) -> dict:
         if not (document_text or '').strip():
             raise RoleAssignmentError("没有可分配的文本内容")
 
@@ -354,31 +360,87 @@ class RoleAssignmentService:
         if not speaker_names:
             raise RoleAssignmentError("请先在语音设置中添加角色配置")
 
-        base_url = (self.config_manager.get('llm_base_url', '') or '').strip()
-        model = (self.config_manager.get('llm_model', '') or '').strip()
-        api_key = (self.config_manager.get('llm_api_key', '') or '').strip()
-        timeout = int(self.config_manager.get('llm_timeout_sec', 60) or 60)
+        from .role_agent.llm import LLMConfigError, resolve_llm_settings
+        try:
+            settings = resolve_llm_settings(self.config_manager)
+        except LLMConfigError as e:
+            raise RoleAssignmentError(str(e)) from e
 
-        if not base_url:
-            raise RoleAssignmentError("请先在设置页面填写 LLM Base URL")
-        if not model:
-            raise RoleAssignmentError("请先在设置页面填写 LLM 模型名称")
-
-        url = _build_chat_completions_url(base_url)
         fallback_speaker = self._get_default_speaker(speaker_names)
 
+        if self.config_manager.get('llm_agent_mode', True):
+            return self._assign_roles_with_agent(
+                settings, segments, document_text, voice_configs, fallback_speaker, progress
+            )
+        return self._assign_roles_legacy(settings, segments, document_text, speaker_names, fallback_speaker)
+
+    def _assign_roles_with_agent(self, settings, segments, document_text, voice_configs, fallback_speaker, progress):
+        """LangGraph 智能体：规则断句 → 规划角色表 → 分批标注 → 校验 → ReAct 校对 → 选角"""
+        from .role_agent import RoleAgent
+
+        speaker_names = list(voice_configs.keys())
+        voice_config_dicts = []
+        for name, config in voice_configs.items():
+            data = config.to_dict() if hasattr(config, 'to_dict') else dict(config or {})
+            data['name'] = name
+            voice_config_dicts.append(data)
+
+        agent = RoleAgent(
+            settings,
+            progress=progress,
+            max_review_rounds=int(self.config_manager.get('llm_agent_review_rounds', 1) or 0),
+            max_review_steps=int(self.config_manager.get('llm_agent_review_steps', 10) or 0),
+            auto_cast=bool(self.config_manager.get('llm_agent_auto_cast', True)),
+        )
+        try:
+            state = agent.run(document_text, voice_config_dicts, fallback_speaker)
+        except Exception as e:
+            raise RoleAssignmentError(f"智能体运行失败: {e}") from e
+
+        voice_mapping = state.get('voice_mapping', {})
+        source_segments = []
+        for segment in state['segments']:
+            label = state['labels'][segment['id']]
+            source_segments.append({
+                'text': segment['text'],
+                'start': segment['start'],
+                'end': segment['end'],
+                'category': label['category'],
+                'speaker_label': label['speaker'],
+                'confidence': label.get('confidence'),
+                'reason': label.get('reason', ''),
+                'suggested_voice': (voice_mapping.get(label['speaker']) or {}).get('voice', ''),
+            })
+
+        return {
+            'assignments': self._normalize_assignments(source_segments, segments, speaker_names, fallback_speaker),
+            'auto_apply': bool(self.config_manager.get('llm_auto_apply', False)),
+            'fallback_speaker': fallback_speaker,
+            'raw_response': json.dumps(state.get('trace', []), ensure_ascii=False, indent=2),
+            'request_url': settings.base_url,
+            'roster': state.get('roster', []),
+            'voice_mapping': voice_mapping,
+            'remaining_issues': state.get('issues', []),
+            'agent_trace': state.get('trace', []),
+            'usage': agent.usage,
+        }
+
+    def _assign_roles_legacy(self, settings, segments, document_text, speaker_names, fallback_speaker):
+        """旧版单次调用：让模型复述原文并输出 JSON，再回对齐到原文"""
+        url = _build_chat_completions_url(settings.base_url)
+
         headers = {'Content-Type': 'application/json'}
-        if api_key and not api_key.lower().startswith('http'):
-            headers['Authorization'] = f'Bearer {api_key}'
+        if settings.api_key:
+            headers['Authorization'] = f'Bearer {settings.api_key}'
 
         payload = {
-            'model': model,
+            'model': settings.model,
             'messages': self._build_messages(document_text, speaker_names, fallback_speaker),
             'temperature': 0.1,
             'response_format': {'type': 'json_object'},
         }
 
-        response_data = self._post_chat_completions(url, headers, payload, timeout)
+        response_data = self._post_chat_completions(url, headers, payload, settings.timeout)
         content = _extract_message_content(response_data)
         parsed_payload = _extract_json_payload(content)
 
@@ -400,15 +462,6 @@ class RoleAssignmentService:
         raw_items = [item for item in raw_assignments if isinstance(item, dict)]
         if not raw_items:
             raise RoleAssignmentError("LLM 返回的分句结果格式无效")
-
-        def current_speaker_for_range(start: int, end: int) -> str:
-            for segment in segments:
-                segment_start = segment.get('start')
-                segment_end = segment.get('end')
-                if isinstance(segment_start, int) and isinstance(segment_end, int):
-                    if segment_start <= start < segment_end or segment_start < end <= segment_end:
-                        return str(segment.get('current_speaker', '') or '').strip()
-            return ""
 
         if any(_extract_segment_text(item) for item in raw_items):
             source_segments = _align_raw_segments_to_text(document_text, raw_items)
@@ -435,6 +488,24 @@ class RoleAssignmentService:
                 source_item['end'] = segment.get('end')
                 source_item['_segment_order'] = segment['index']
                 source_segments.append(source_item)
+
+        return {
+            'assignments': self._normalize_assignments(source_segments, segments, speaker_names, fallback_speaker),
+            'auto_apply': bool(self.config_manager.get('llm_auto_apply', False)),
+            'fallback_speaker': fallback_speaker,
+            'raw_response': content,
+            'request_url': url,
+        }
+
+    def _normalize_assignments(self, source_segments, segments, speaker_names, fallback_speaker) -> List[dict]:
+        def current_speaker_for_range(start: int, end: int) -> str:
+            for segment in segments:
+                segment_start = segment.get('start')
+                segment_end = segment.get('end')
+                if isinstance(segment_start, int) and isinstance(segment_end, int):
+                    if segment_start <= start < segment_end or segment_start < end <= segment_end:
+                        return str(segment.get('current_speaker', '') or '').strip()
+            return ""
 
         normalized_assignments = []
         for order, item in enumerate(source_segments, 1):
@@ -495,10 +566,4 @@ class RoleAssignmentService:
                 'end': item.get('end'),
             })
 
-        return {
-            'assignments': normalized_assignments,
-            'auto_apply': bool(self.config_manager.get('llm_auto_apply', False)),
-            'fallback_speaker': fallback_speaker,
-            'raw_response': content,
-            'request_url': url,
-        }
+        return normalized_assignments
