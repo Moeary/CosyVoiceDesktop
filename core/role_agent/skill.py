@@ -21,6 +21,10 @@ DEFAULT_PARAMS: Dict[str, Any] = {
     'speech_lead_verbs': '道说想问答叫喊骂笑叹念忖思',
     # 为 系统 单独选角（系统流的电子音）；关闭时 系统 与旁白共用默认音色
     'cast_system_speaker': False,
+    # 疑点带有提示语给出的修正建议时，validate 直接采纳，不再交给校对员
+    'auto_apply_suggestions': False,
+    # 校对员的推理强度（none/low/medium/high，空为模型默认）；推理过长会挤占工具调用的输出空间
+    'review_reasoning_effort': '',
 }
 
 

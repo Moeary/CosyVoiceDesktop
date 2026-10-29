@@ -111,16 +111,25 @@ def resolve_llm_settings(config_manager) -> LLMSettings:
     )
 
 
-def build_chat_model(settings: LLMSettings, temperature: float = 0.1, max_tokens: int = MAX_OUTPUT_TOKENS):
-    """max_tokens 含推理 token；不设上限时推理模型偶尔会陷入长循环（实测单次 13 万 token）。"""
+def build_chat_model(settings: LLMSettings, temperature: float = 0.1, max_tokens: int = MAX_OUTPUT_TOKENS,
+                     reasoning_effort: str = ''):
+    """max_tokens 含推理 token；不设上限时推理模型偶尔会陷入长循环（实测单次 13 万 token）。
+
+    reasoning_effort（none/low/medium/high）仅对 OpenRouter 生效，用于压缩或关闭推理，给工具调用留出输出空间。
+    """
     from langchain_openai import ChatOpenAI
 
     headers = {}
+    extra_body = None
     if settings.is_openrouter:
         headers = {
             'HTTP-Referer': 'https://github.com/Moeary/CosyVoiceDesktop',
             'X-Title': 'CosyVoice Desktop',
         }
+        # OpenRouter 在 usage 中回传本次调用的实际美元花费
+        extra_body = {'usage': {'include': True}}
+        if reasoning_effort:
+            extra_body['reasoning'] = {'effort': reasoning_effort}
     return ChatOpenAI(
         model=settings.model,
         base_url=settings.base_url,
@@ -131,8 +140,7 @@ def build_chat_model(settings: LLMSettings, temperature: float = 0.1, max_tokens
         timeout=settings.timeout,
         max_retries=2,
         default_headers=headers or None,
-        # OpenRouter 在 usage 中回传本次调用的实际美元花费
-        extra_body={'usage': {'include': True}} if settings.is_openrouter else None,
+        extra_body=extra_body,
     )
 
 

@@ -4,7 +4,8 @@
     segment      规则断句，得到带原文偏移量的片段
     plan_cast    Planner：通读全文，建立角色表（规范名/别名/性别/年龄/特征）与叙述视角
     label_chunk  Executor：按批次给片段编号打标签（类别 + 说话人），循环直到所有批次完成
-    validate     确定性校验：漏标、未识别说话人、引号内被标旁白、低置信度、别名归一
+    validate     确定性校验：漏标、未识别说话人、引号内被标旁白、提示语指向不一致、群体说单人台词、
+                 低置信度、别名归一；能从提示语确定说话人时附修正建议；收尾时移除从未发言的角色
     review_agent ReAct 校对员：带着问题清单调用工具查上下文、改标签、补/并角色
     review_tools 执行校对员的工具调用
     cast_voices  把角色映射到本地音色配置（规则匹配优先，其余由 LLM 按性别/年龄/特征选角）
@@ -24,6 +25,7 @@ from .llm import LLMSettings, accumulate_usage, build_chat_model, invoke_structu
 from .schemas import (
     REVIEW_TOOLS, CastPlan, ChunkLabels, VoiceCasting,
 )
+from . import checks
 from .segmenter import chunk_segments, split_segments
 from .skill import Skill, load_skill
 
@@ -123,7 +125,7 @@ class RoleAgent:
         self,
         settings: LLMSettings,
         progress: Optional[Callable[[str], None]] = None,
-        max_review_rounds: int = 1,
+        max_review_rounds: int = 2,
         max_review_steps: int = 10,
         auto_cast: bool = True,
         llm=None,
@@ -133,6 +135,7 @@ class RoleAgent:
         self.skill = skill or load_skill()
         self.p = self.skill.params
         self.llm = llm or build_chat_model(settings)
+        self._llm_injected = llm is not None
         self.progress = progress or (lambda message: None)
         self.max_review_rounds = max_review_rounds
         self.max_review_steps = max_review_steps
@@ -270,6 +273,8 @@ class RoleAgent:
     def validate(self, state: RoleAgentState) -> dict:
         roster = state['roster']
         labels = {seg_id: dict(label) for seg_id, label in state['labels'].items()}
+        cues = checks.attribution_cues(state['segments'], roster)
+        groups = {c['name'] for c in roster if checks.is_group(c)}
         issues = []
         for segment in state['segments']:
             seg_id = segment['id']
@@ -278,29 +283,57 @@ class RoleAgent:
                 label = labels[seg_id] = {**_default_label(segment), 'auto': True}
 
             # 别名归一（校对员可能新增了别名或合并了角色）
-            if label['category'] in {'对话', '心理'}:
+            speaking = label['category'] in {'对话', '心理'}
+            if speaking:
                 resolved = resolve_speaker(label['speaker'], roster)
                 if resolved and resolved != label['speaker']:
                     label['speaker'] = resolved
 
-            problem = ''
-            if label.get('auto') and not label.get('reviewed'):
-                problem = '模型漏标'
-            elif label['category'] in {'对话', '心理'} and label['speaker'] in {UNKNOWN, NARRATOR, ''}:
-                problem = '说话人未识别'
+            cue = cues.get(seg_id)
+            reviewed = label.get('reviewed')
+            kind = problem = ''
+            if label.get('auto') and not reviewed:
+                kind, problem = 'missing', '模型漏标'
+            elif speaking and label['speaker'] in {UNKNOWN, NARRATOR, ''}:
+                kind, problem = 'unknown_speaker', '说话人未识别'
             elif segment['in_quote'] and label['category'] == '旁白' and len(segment['text']) > 8:
-                problem = '引号内文本被标为旁白'
-            elif label['category'] in {'对话', '心理'} and not resolve_speaker(label['speaker'], roster):
-                problem = '说话人不在角色表'
-            elif label.get('confidence', 1) < self.p['low_confidence'] and not label.get('reviewed'):
-                problem = f"置信度低({label.get('confidence', 0):.2f})"
-            if problem:
-                issues.append({'id': seg_id, 'problem': problem})
+                kind, problem = 'quote_as_narration', '引号内文本被标为旁白'
+            elif speaking and not resolve_speaker(label['speaker'], roster):
+                kind, problem = 'not_in_roster', '说话人不在角色表'
+            elif reviewed:
+                pass
+            elif speaking and cue and cue[0] != label['speaker']:
+                kind, problem = 'cue_mismatch', f"提示语「{cue[1]}」指向 {cue[0]}"
+            elif speaking and label['speaker'] in groups and segment['in_quote'] and checks.singular_line(segment['text']):
+                kind, problem = 'group_singular', '群体角色说了含“我”的单人台词'
+            elif label.get('confidence', 1) < self.p['low_confidence']:
+                kind, problem = 'low_confidence', f"置信度低({label.get('confidence', 0):.2f})"
+            if not kind:
+                continue
+            issue = {'id': seg_id, 'kind': kind, 'problem': problem}
+            if cue and cue[0] != label['speaker'] and kind != 'low_confidence':
+                # 提示语给出了明确的说话人：附上修正建议，校对员核实后可一次性采纳
+                issue['suggest'] = {'category': label['category'] if speaking else '对话', 'speaker': cue[0]}
+            issues.append(issue)
 
         update: dict = {'labels': labels, 'issues': issues}
         if 'first_issues' not in state:
             update['first_issues'] = issues
             update['pre_review_labels'] = {seg_id: dict(label) for seg_id, label in labels.items()}
+
+        auto_fixed = []
+        if self.p['auto_apply_suggestions']:
+            # 提示语给出的说话人可靠性很高：直接修复，只把需要判断的疑点留给校对员
+            for issue in [i for i in issues if i.get('suggest')]:
+                labels[issue['id']] = {
+                    **issue['suggest'],
+                    'confidence': 0.9,
+                    'reason': f"自动修复：{issue['problem']}"[:30],
+                    'reviewed': True,
+                }
+                auto_fixed.append(f"#{issue['id']}→{issue['suggest']['speaker']}")
+            issues = [i for i in issues if not i.get('suggest')]
+            update['issues'] = issues
         can_review = (
             issues
             and self._tools_supported
@@ -318,15 +351,25 @@ class RoleAgent:
             update['review_done'] = True
 
         summary = '、'.join(f"#{item['id']} {item['problem']}" for item in issues[:6])
-        update['trace'] = [{
-            'node': 'validate',
-            'message': f"发现 {len(issues)} 个可疑片段" + (f"：{summary}" + ('…' if len(issues) > 6 else '') if issues else '，全部通过'),
-        }]
+        message = f"发现 {len(issues)} 个可疑片段" + (f"：{summary}" + ('…' if len(issues) > 6 else '') if issues else '，全部通过')
+        if auto_fixed:
+            message = f"按提示语自动修复 {len(auto_fixed)} 处（{'、'.join(auto_fixed[:6])}）；" + message
+        if update['review_done']:
+            # 收尾：移除从未发言的角色（故事里被讲述的人物、规划误报），不再为它们选角
+            unused = checks.unused_characters(roster, labels)
+            if unused:
+                update['roster'] = [c for c in roster if c['name'] not in unused]
+                message += f"；移除未发言角色：{'、'.join(unused)}"
+        update['trace'] = [{'node': 'validate', 'message': message}]
         return update
 
     def review_agent(self, state: RoleAgentState) -> dict:
         if self._tool_llm is None:
-            self._tool_llm = self.llm.bind_tools(REVIEW_TOOLS, max_tokens=self.p['review_max_tokens'])
+            base = self.llm
+            if self.p['review_reasoning_effort'] and not self._llm_injected:
+                base = build_chat_model(self.settings, max_tokens=self.p['review_max_tokens'],
+                                        reasoning_effort=self.p['review_reasoning_effort'])
+            self._tool_llm = base.bind_tools(REVIEW_TOOLS, max_tokens=self.p['review_max_tokens'])
 
         messages = list(state.get('messages') or [])
         if not messages:
@@ -334,9 +377,11 @@ class RoleAgent:
             issue_lines = []
             for issue in state['issues'][:self.p['max_issues_in_prompt']]:
                 label = state['labels'][issue['id']]
+                suggest = issue.get('suggest')
                 issue_lines.append(
                     f"#{issue['id']} [{issue['problem']}] 当前={label['category']}/{label['speaker']} "
-                    f"原文={segment_map[issue['id']]['text'][:60]}"
+                    + (f"建议={suggest['category']}/{suggest['speaker']} " if suggest else '')
+                    + f"原文={segment_map[issue['id']]['text'][:60]}"
                 )
             messages = [
                 SystemMessage(content=self.skill.prompts['reviewer']),
@@ -362,9 +407,10 @@ class RoleAgent:
         calls = getattr(response, 'tool_calls', None) or []
         thought = (response.content if isinstance(response.content, str) else '').strip()
         if not calls and (getattr(response, 'response_metadata', None) or {}).get('finish_reason') == 'length':
-            # 被输出上限截断：结束校对，但不能当作“已确认”
+            # 被输出上限截断：结束校对且不再开新一轮（重来多半同样被截断），也不能当作“已确认”
             return {
                 'review_done': True,
+                'review_round': self.max_review_rounds,
                 'trace': [{'node': 'review_agent', 'message': f"单步输出超过 {self.p['review_max_tokens']} token 上限，结束校对"}],
             }
         action = '、'.join(call['name'] for call in calls) or '结束'
@@ -383,6 +429,7 @@ class RoleAgent:
         labels = {seg_id: dict(label) for seg_id, label in state['labels'].items()}
         roster = [dict(item, aliases=list(item.get('aliases', []))) for item in state['roster']]
         segment_map = {segment['id']: segment for segment in state['segments']}
+        suggestions = {issue['id']: issue['suggest'] for issue in state.get('issues', []) if issue.get('suggest')}
         done = False
         observations = []
 
@@ -394,7 +441,7 @@ class RoleAgent:
                     result = '校对结束'
                     observations.append(f"Finish：{args.get('summary', '')[:80]}")
                 else:
-                    result = self._run_tool(name, args, labels, roster, segment_map)
+                    result = self._run_tool(name, args, labels, roster, segment_map, suggestions)
                     observations.append(f"{name}{_dump(args)[:80]}")
             except Exception as e:
                 result = f"工具执行失败：{e}"
@@ -412,7 +459,7 @@ class RoleAgent:
             'trace': [{'node': 'review_tools', 'message': '；'.join(observations)}],
         }
 
-    def _run_tool(self, name, args, labels, roster, segment_map) -> str:
+    def _run_tool(self, name, args, labels, roster, segment_map, suggestions=None) -> str:
         if name == 'ReadSegments':
             start = max(1, int(args.get('start_id', 1)))
             end = min(max(segment_map), int(args.get('end_id', start)), start + 39)
@@ -459,6 +506,23 @@ class RoleAgent:
                 }
                 changed.append(f"#{seg_id}→{category}/{speaker}")
             return '已修改：' + '、'.join(changed) if changed else '没有可修改的片段'
+
+        if name == 'ApplySuggestions':
+            changed = []
+            for raw in args.get('ids') or []:
+                seg_id = int(raw)
+                suggest = (suggestions or {}).get(seg_id)
+                if not suggest:
+                    continue
+                labels[seg_id] = {
+                    'category': suggest['category'],
+                    'speaker': suggest['speaker'],
+                    'confidence': 0.9,
+                    'reason': ('校对：' + (str(args.get('reason', '')).strip() or '采纳提示语建议'))[:30],
+                    'reviewed': True,
+                }
+                changed.append(f"#{seg_id}→{suggest['category']}/{suggest['speaker']}")
+            return '已采纳：' + '、'.join(changed) if changed else '这些编号没有可采纳的建议'
 
         if name == 'AddCharacter':
             character_name = str(args.get('name', '')).strip()

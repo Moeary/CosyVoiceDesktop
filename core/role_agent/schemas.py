@@ -79,6 +79,12 @@ class Relabel(BaseModel):
     updates: List[LabelUpdate]
 
 
+class ApplySuggestions(BaseModel):
+    """采纳疑点清单里程序给出的修正建议（“建议=类别/说话人”）。只传核实过原文、确认无误的片段编号。"""
+    ids: List[int]
+    reason: str = ''
+
+
 class AddCharacter(BaseModel):
     """向角色表添加漏掉的角色。"""
     name: str
@@ -98,4 +104,4 @@ class Finish(BaseModel):
     summary: str
 
 
-REVIEW_TOOLS = [ReadSegments, SearchText, GetRoster, Relabel, AddCharacter, MergeCharacter, Finish]
+REVIEW_TOOLS = [ReadSegments, SearchText, GetRoster, Relabel, ApplySuggestions, AddCharacter, MergeCharacter, Finish]

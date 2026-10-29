@@ -394,7 +394,7 @@ class RoleAssignmentService:
         agent = RoleAgent(
             settings,
             progress=progress,
-            max_review_rounds=int(self.config_manager.get('llm_agent_review_rounds', 1) or 0),
+            max_review_rounds=int(self.config_manager.get('llm_agent_review_rounds', 2) or 0),
             max_review_steps=int(self.config_manager.get('llm_agent_review_steps', 10) or 0),
             auto_cast=bool(self.config_manager.get('llm_agent_auto_cast', True)),
             skill=skill,

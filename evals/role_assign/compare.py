@@ -34,6 +34,8 @@ OVERALL_ROWS = [
     ('review_trigger_rate', 'ReAct 触发率', _pct, None),
     ('review_fixed', 'ReAct 改对', lambda v: _num(v, 0), True),
     ('review_broken', 'ReAct 改错', lambda v: _num(v, 0), False),
+    ('validator_precision', '校验精确率', _pct, True),
+    ('validator_recall', '校验召回率', _pct, True),
     ('failed_runs', '失败运行', lambda v: _num(v, 0), False),
     ('structured_fallbacks', '结构化降级次数', lambda v: _num(v, 0), False),
     ('cost_per_run', '每次运行 $', lambda v: _num(v, 4), False),
@@ -43,7 +45,6 @@ OVERALL_ROWS = [
     ('cost_cv', '花费变异系数', _pct, False),
     ('latency_s', '平均耗时 s', lambda v: _num(v, 1), False),
     ('latency_cv', '耗时变异系数', _pct, False),
-    ('judge_overall', '裁判总分', lambda v: _num(v, 1), True),
 ]
 
 
@@ -83,7 +84,6 @@ def merge(reports: List[dict]) -> dict:
         for case_id in {t['case_id'] for t in report['trials']} & set(cases):
             by_case[case_id] = {
                 'trials': [rescore(t, cases[case_id]) for t in report['trials'] if t['case_id'] == case_id],
-                'judgments': [j for j in report.get('judgments', []) if j['case_id'] == case_id],
                 'skill': report['config']['skill'],
                 'trials_per_case': report['config']['trials'],
             }
@@ -93,9 +93,8 @@ def merge(reports: List[dict]) -> dict:
 def resummarize(by_case: dict, case_ids: List[str]) -> dict:
     cases = [c for c in metrics.load_cases(only=case_ids)]
     trials = [t for cid in case_ids for t in by_case[cid]['trials']]
-    judgments = [j for cid in case_ids for j in by_case[cid]['judgments']]
     expected = max(by_case[cid]['trials_per_case'] for cid in case_ids)
-    return summarize(cases, trials, judgments, expected)
+    return summarize(cases, trials, expected)
 
 
 def _delta(a, b, fmt, higher_better) -> str:
@@ -133,7 +132,7 @@ def render(base: dict, cand: dict, base_by: dict, cand_by: dict, case_ids: List[
     lines += [
         '## 分用例',
         '',
-        '| 用例 | 片段 | 准确率 基线→候选 | 说话人 | 全一致 | 规范名一致 | 选角 | 每次 $ | token/片段 | 裁判 |',
+        '| 用例 | 片段 | 准确率 基线→候选 | 说话人 | 全一致 | 规范名一致 | 选角 | 校对 改对/改坏 | 每次 $ | token/片段 |',
         '|---|---|---|---|---|---|---|---|---|---|',
     ]
 
@@ -154,9 +153,9 @@ def render(base: dict, cand: dict, base_by: dict, cand_by: dict, case_ids: List[
             f"| {pair(x['stability'].get('all_agree_rate'), y['stability'].get('all_agree_rate'))} "
             f"| {pair(x['stability'].get('naming_consistency'), y['stability'].get('naming_consistency'))} "
             f"| {pair(x['casting_acc'], y['casting_acc'])} "
+            f"| {x['review']['fixed']}/{x['review']['broken']} → {y['review']['fixed']}/{y['review']['broken']} "
             f"| {pair(x['efficiency']['cost']['mean'], y['efficiency']['cost']['mean'], lambda v: _num(v, 4))} "
-            f"| {pair(x['efficiency']['tokens_per_segment'], y['efficiency']['tokens_per_segment'], lambda v: _num(v, 0))} "
-            f"| {pair(x['judge'].get('overall'), y['judge'].get('overall'), lambda v: _num(v, 1))} |"
+            f"| {pair(x['efficiency']['tokens_per_segment'], y['efficiency']['tokens_per_segment'], lambda v: _num(v, 0))} |"
         )
     lines.append('')
 
@@ -194,8 +193,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     base, cand = resummarize(base_by, case_ids), resummarize(cand_by, case_ids)
+    # 数据集里标了 split 的用例（如 holdout 留出集）自动分组
+    splits = {}
+    for case in metrics.load_cases(only=case_ids):
+        splits.setdefault(case.get('split', 'dev'), []).append(case['id'])
+    specs = [f"{name}={','.join(ids)}" for name, ids in splits.items()] if len(splits) > 1 else []
     groups = {}
-    for spec in args.group:
+    for spec in specs + args.group:
         name, _, ids = spec.partition('=')
         ids = [i for i in ids.split(',') if i in case_ids]
         if ids:

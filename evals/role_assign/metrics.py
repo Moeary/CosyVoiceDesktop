@@ -139,10 +139,20 @@ def score_trial(case: dict, state: dict) -> dict:
     # 校验规则的命中率：首轮疑点中有多少真的错了，错的里面有多少被抓到
     flagged = {issue['id'] for issue in state.get('first_issues', [])}
     pre_wrong = {w['id'] for w in pre['wrong']}
+    # 按疑点类型细分：疑点里真错的数量；带修正建议时，建议本身是否正确
+    by_kind: Dict[str, dict] = {}
+    for issue in state.get('first_issues', []):
+        entry = by_kind.setdefault(issue.get('kind', 'other'), {'flagged': 0, 'wrong': 0, 'suggested': 0, 'suggest_ok': 0})
+        entry['flagged'] += 1
+        entry['wrong'] += issue['id'] in pre_wrong
+        if issue.get('suggest'):
+            entry['suggested'] += 1
+            entry['suggest_ok'] += label_correct(issue['suggest'], by_segment.get(issue['id']), case, roster)
     validator = {
         'flagged': len(flagged),
         'precision': len(flagged & pre_wrong) / len(flagged) if flagged else None,
         'recall': len(flagged & pre_wrong) / len(pre_wrong) if pre_wrong else None,
+        'by_kind': by_kind,
     }
 
     # 角色表

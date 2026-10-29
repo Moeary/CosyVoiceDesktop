@@ -1,9 +1,10 @@
 """评测编排（LangGraph）：
 
-    prepare ──Send×(用例×次数)──▶ run_trial ──▶ collect ──Send×成功次数──▶ judge_trial ──▶ aggregate ──▶ analyst
+    prepare ──Send×(用例×次数)──▶ run_trial ──▶ collect ──▶ aggregate ──▶ analyst
 
-run_trial 运行分角智能体并做确定性评分；judge_trial 由裁判模型独立打分；aggregate 汇总准确率、稳定性、
-ReAct 收益、token 效率；analyst 是分析智能体，读汇总数据给出结论和 Skill 修改建议。
+run_trial 运行分角智能体并对照金标准评分；aggregate 汇总准确率、稳定性、ReAct 自我修复收益、
+token 效率；analyst 是分析智能体，只读金标准指标给出结论和 Skill 修改建议。
+不使用 LLM 裁判：评测结论只以金标准指标为准。
 全程由 CostLedger 记账，超出预算的任务直接跳过。
 """
 
@@ -21,7 +22,7 @@ from typing import Annotated, Dict, List, Literal, Optional, TypedDict
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from core.role_agent import RoleAgent
 from core.role_agent.llm import LLMSettings, build_chat_model, invoke_structured
@@ -33,25 +34,6 @@ PROMPTS = parse_markdown_sections((Path(__file__).resolve().parent / 'prompts.md
 
 
 # ---------- 结构化输出 ----------
-
-class JudgeError(BaseModel):
-    segment_id: int
-    kind: Literal['speaker', 'category', 'segmentation', 'roster', 'casting'] = Field(
-        description="speaker=说话人错，category=类别错，segmentation=断句不当，roster/casting=角色表或音色问题")
-    problem: str
-    suggestion: str = ''
-
-
-class JudgeVerdict(BaseModel):
-    speaker_attribution: int = Field(ge=1, le=10)
-    category: int = Field(ge=1, le=10)
-    segmentation: int = Field(ge=1, le=10)
-    roster: int = Field(ge=1, le=10)
-    casting: int = Field(ge=1, le=10)
-    overall: int = Field(ge=1, le=10)
-    errors: List[JudgeError] = Field(description="确定的错误，最多 10 条")
-    comment: str = ''
-
 
 class SkillEdit(BaseModel):
     section: Literal['planner', 'executor', 'reviewer', 'caster', 'params', 'segmenter', 'code']
@@ -66,9 +48,6 @@ class Analysis(BaseModel):
     token_efficiency: str
     weaknesses: List[str]
     skill_edits: List[SkillEdit]
-
-
-JUDGE_DIMENSIONS = ('speaker_attribution', 'category', 'segmentation', 'roster', 'casting', 'overall')
 
 
 # ---------- 预算 ----------
@@ -115,7 +94,6 @@ def usage_cost(usage: dict, price: Optional[dict]) -> float:
 class EvalState(TypedDict, total=False):
     cases: List[dict]
     trials: Annotated[List[dict], operator.add]
-    judgments: Annotated[List[dict], operator.add]
     summary: dict
     analysis: dict
 
@@ -127,33 +105,31 @@ class EvalPipeline:
         skill: Skill,
         voices: dict,
         model: str,
-        judge_model: str,
+        analyst_model: str,
         trials: int,
         ledger: CostLedger,
         prices: Dict[str, dict],
         estimates: Dict[str, float],
-        judge: bool = True,
         analyst: bool = True,
         log=print,
         agent_llm=None,
-        judge_llm=None,
+        analyst_llm=None,
     ):
         self.skill = skill
         self.voices = voices
         self.model = model
-        self.judge_model = judge_model
+        self.analyst_model = analyst_model
         self.trials = trials
         self.ledger = ledger
         self.prices = prices
         self.estimates = estimates
-        self.use_judge = judge
         self.use_analyst = analyst
         self.log = log
         self.agent_settings = replace(settings, model=model, timeout=max(settings.timeout, 180))
-        self.judge_settings = replace(settings, model=judge_model, timeout=max(settings.timeout, 180))
+        self.analyst_settings = replace(settings, model=analyst_model, timeout=max(settings.timeout, 180))
         # 测试时可注入假模型
         self._agent_llm = agent_llm
-        self._judge_llm = judge_llm
+        self._analyst_llm = analyst_llm
 
     # ---------- 节点 ----------
 
@@ -212,54 +188,8 @@ class EvalPipeline:
         self.log(f"分角运行结束：成功 {len(done)}/{len(state['trials'])}，累计 ${self.ledger.total:.4f}")
         return {}
 
-    def dispatch_judges(self, state: EvalState):
-        done = [t for t in state['trials'] if 'score' in t]
-        if not self.use_judge or not done:
-            return 'aggregate'
-        cases = {case['id']: case for case in state['cases']}
-        return [Send('judge_trial', {'trial': t, 'case': cases[t['case_id']]}) for t in done]
-
-    def judge_trial(self, payload: dict) -> dict:
-        trial, case = payload['trial'], payload['case']
-        estimate = self.estimates.get(f"judge:{case['id']}", 0.005)
-        key = {'case_id': trial['case_id'], 'trial': trial['trial']}
-        if not self.ledger.reserve(estimate):
-            return {'judgments': [{**key, 'skipped': True}]}
-
-        llm = self._judge_llm or build_chat_model(self.judge_settings, temperature=0, max_tokens=4096)
-        usage: dict = {}
-        cost = 0.0
-        try:
-            verdict = invoke_structured(llm, JudgeVerdict, [
-                SystemMessage(content=PROMPTS['judge']),
-                HumanMessage(content=self._judge_input(trial['state'])),
-            ], usage, 'judge')
-            cost = usage_cost(usage, self.prices.get(self.judge_model))
-            result = {**key, 'verdict': verdict.model_dump(), 'usage': {**usage, 'cost': cost}}
-            self.log(f"  [裁判] {case['id']}#{trial['trial'] + 1}：overall {verdict.overall}/10，${cost:.4f}")
-        except Exception as e:
-            cost = usage_cost(usage, self.prices.get(self.judge_model))
-            result = {**key, 'error': str(e)}
-            self.log(f"  [裁判失败] {case['id']}#{trial['trial'] + 1}：{e}")
-        self.ledger.settle('judge', estimate, cost)
-        return {'judgments': [result]}
-
-    def _judge_input(self, state: dict) -> str:
-        mapping = state['voice_mapping']
-        lines = []
-        for segment in state['segments']:
-            label = state['labels'][segment['id']]
-            voice = (mapping.get(label['speaker']) or {}).get('voice') or '未指定'
-            lines.append(f"#{segment['id']} [{label['category']}/{label['speaker']} → {voice}] {segment['text']}")
-        roster = '；'.join(
-            f"{c['name']}（{c.get('gender', '未知')}/{c.get('age', '未知')}，又称 {'、'.join(c.get('aliases', [])) or '无'}）"
-            for c in state['roster']
-        )
-        voices = '；'.join(f"{v['name']}：{v.get('instruct_text', '')}" for v in self.voices['voices'])
-        return f"角色表：{roster}\n音色库：{voices}\n旁白默认音色：{self.voices['fallback']}\n\n台本：\n" + '\n'.join(lines)
-
     def aggregate(self, state: EvalState) -> dict:
-        summary = summarize(state['cases'], state['trials'], state.get('judgments', []), self.trials)
+        summary = summarize(state['cases'], state['trials'], self.trials)
         summary['cost'] = {k: round(v, 6) for k, v in self.ledger.spent.items()}
         summary['cost']['total'] = round(self.ledger.total, 6)
         summary['skipped_for_budget'] = self.ledger.skipped
@@ -271,7 +201,7 @@ class EvalPipeline:
         estimate = 0.01
         if not self.ledger.reserve(estimate):
             return {'analysis': {'error': '预算不足，跳过分析'}}
-        llm = self._judge_llm or build_chat_model(self.judge_settings, temperature=0.2, max_tokens=6000)
+        llm = self._analyst_llm or build_chat_model(self.analyst_settings, temperature=0.2, max_tokens=6000)
         usage: dict = {}
         cost = 0.0
         try:
@@ -279,11 +209,11 @@ class EvalPipeline:
                 SystemMessage(content=PROMPTS['analyst']),
                 HumanMessage(content=self._analyst_input(state['summary'])),
             ], usage, 'analyst')
-            cost = usage_cost(usage, self.prices.get(self.judge_model))
+            cost = usage_cost(usage, self.prices.get(self.analyst_model))
             result = analysis.model_dump()
             self.log(f"分析智能体完成，${cost:.4f}")
         except Exception as e:
-            cost = usage_cost(usage, self.prices.get(self.judge_model))
+            cost = usage_cost(usage, self.prices.get(self.analyst_model))
             result = {'error': str(e)}
         self.ledger.settle('analyst', estimate, cost)
         summary = dict(state['summary'])
@@ -291,7 +221,7 @@ class EvalPipeline:
         return {'analysis': result, 'summary': summary}
 
     def _analyst_input(self, summary: dict) -> str:
-        compact = {k: summary[k] for k in ('overall', 'judge_reliability', 'cases')}
+        compact = {k: summary[k] for k in ('overall', 'cases')}
         prompts = '\n\n'.join(f"## {name}\n{text}" for name, text in self.skill.prompts.items())
         return (
             f"Skill：{self.skill.label}\n参数：{json.dumps(self.skill.params, ensure_ascii=False)}\n\n"
@@ -303,14 +233,12 @@ class EvalPipeline:
         graph.add_node('prepare', self.prepare)
         graph.add_node('run_trial', self.run_trial)
         graph.add_node('collect', self.collect)
-        graph.add_node('judge_trial', self.judge_trial)
         graph.add_node('aggregate', self.aggregate)
         graph.add_node('analyst', self.analyst)
         graph.add_edge(START, 'prepare')
         graph.add_conditional_edges('prepare', self.dispatch_trials, ['run_trial'])
         graph.add_edge('run_trial', 'collect')
-        graph.add_conditional_edges('collect', self.dispatch_judges, ['judge_trial', 'aggregate'])
-        graph.add_edge('judge_trial', 'aggregate')
+        graph.add_edge('collect', 'aggregate')
         graph.add_edge('aggregate', 'analyst')
         graph.add_edge('analyst', END)
         return graph.compile()
@@ -326,14 +254,17 @@ def _mean(values):
     return statistics.mean(values) if values else None
 
 
-def _pearson(xs: List[float], ys: List[float]) -> Optional[float]:
-    if len(xs) < 3 or len(set(xs)) < 2 or len(set(ys)) < 2:
-        return None
-    return statistics.correlation(xs, ys)
+def _sum_by_kind(validators: List[dict]) -> Dict[str, dict]:
+    total: Dict[str, dict] = {}
+    for validator in validators:
+        for kind, counts in (validator.get('by_kind') or {}).items():
+            entry = total.setdefault(kind, {})
+            for key, value in counts.items():
+                entry[key] = entry.get(key, 0) + value
+    return total
 
 
-def summarize(cases: List[dict], trials: List[dict], judgments: List[dict], expected: int) -> dict:
-    judged = {(j['case_id'], j['trial']): j for j in judgments if 'verdict' in j}
+def summarize(cases: List[dict], trials: List[dict], expected: int) -> dict:
     per_case = {}
     all_ok = []
     for case in cases:
@@ -346,7 +277,6 @@ def summarize(cases: List[dict], trials: List[dict], judgments: List[dict], expe
             continue
         scores = [t['score'] for t in runs]
         effs = [t['efficiency'] for t in runs]
-        verdicts = [judged[(case['id'], t['trial'])]['verdict'] for t in runs if (case['id'], t['trial']) in judged]
 
         wrong_counter = Counter(f"#{w['id']} {w['text']} | 得到 {w['got']} | 应为 {w['want']}" for s in scores for w in s['wrong'])
         per_case[case['id']] = {
@@ -371,6 +301,7 @@ def summarize(cases: List[dict], trials: List[dict], judgments: List[dict], expe
                 'flagged': _mean([s['validator']['flagged'] for s in scores]),
                 'precision': _mean([s['validator']['precision'] for s in scores]),
                 'recall': _mean([s['validator']['recall'] for s in scores]),
+                'by_kind': _sum_by_kind([s['validator'] for s in scores]),
             },
             'roster': {
                 'recall': _mean([s['roster']['recall'] for s in scores]),
@@ -400,27 +331,9 @@ def summarize(cases: List[dict], trials: List[dict], judgments: List[dict], expe
                     for node in sorted({n for e in effs for n in e['node_token_share']})
                 },
             },
-            'judge': {dim: _mean([v[dim] for v in verdicts]) for dim in JUDGE_DIMENSIONS} if verdicts else {},
-            'judge_comments': [v['comment'] for v in verdicts if v.get('comment')],
             'top_wrong': [f"{text}（{n}/{len(runs)} 次）" for text, n in wrong_counter.most_common(8)],
             'gold_unmatched': scores[0]['gold_unmatched'],
         }
-
-    # 裁判可信度：裁判总分与金标准准确率的相关性；裁判指出的错误有多少确实错了
-    xs, ys, judge_hits, judge_total = [], [], 0, 0
-    for t in all_ok:
-        j = judged.get((t['case_id'], t['trial']))
-        if not j:
-            continue
-        xs.append(j['verdict']['overall'])
-        ys.append(t['score']['label_acc'])
-        wrong_ids = {w['id'] for w in t['score']['wrong']}
-        for err in j['verdict']['errors']:
-            # 只有说话人/类别类错误能和金标准对照
-            if err.get('kind') not in ('speaker', 'category'):
-                continue
-            judge_total += 1
-            judge_hits += err['segment_id'] in wrong_ids
 
     ok_cases = [c for c in per_case.values() if c.get('runs')]
     total_cost_agent = sum(t['score']['usage'].get('cost', 0) for t in all_ok)
@@ -452,19 +365,11 @@ def summarize(cases: List[dict], trials: List[dict], judgments: List[dict], expe
         'review_broken': sum(c['review']['broken'] for c in ok_cases),
         'validator_precision': _mean([c['validator']['precision'] for c in ok_cases]),
         'validator_recall': _mean([c['validator']['recall'] for c in ok_cases]),
+        'validator_by_kind': _sum_by_kind([c['validator'] for c in ok_cases]),
         'cost_per_run': total_cost_agent / len(all_ok) if all_ok else None,
         'cost_per_kchar': total_cost_agent / total_chars * 1000 if total_chars else None,
         'tokens_per_segment': _mean([c['efficiency']['tokens_per_segment'] for c in ok_cases]),
         'reasoning_share': _mean([c['efficiency']['reasoning_share'] for c in ok_cases]),
         'latency_s': _mean([c['efficiency']['latency_s']['mean'] for c in ok_cases]),
-        'judge_overall': _mean([c['judge'].get('overall') for c in ok_cases if c['judge']]),
     }
-    return {
-        'overall': overall,
-        'cases': per_case,
-        'judge_reliability': {
-            'pearson_overall_vs_label_acc': _pearson(xs, ys),
-            'error_precision': judge_hits / judge_total if judge_total else None,
-            'errors_reported': judge_total,
-        },
-    }
+    return {'overall': overall, 'cases': per_case}

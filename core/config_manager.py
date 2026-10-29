@@ -20,7 +20,7 @@ class ConfigManager:
             "llm_timeout_sec": 60,
             "llm_auto_apply": False,
             "llm_agent_mode": True,
-            "llm_agent_review_rounds": 1,
+            "llm_agent_review_rounds": 2,
             "llm_agent_review_steps": 10,
             "llm_agent_auto_cast": True,
             # 留空使用 core/role_agent/skills/novel-role-assign/SKILL.md

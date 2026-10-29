@@ -9,13 +9,14 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
+from core.role_agent import RoleAgent, checks
 from core.role_agent.llm import LLMSettings
 from core.role_agent.schemas import CastPlan, Character, ChunkLabels, SegmentLabel, VoiceCasting, VoiceMapping
 from core.role_agent.skill import load_skill, parse_markdown_sections
 from core.role_agent.segmenter import split_segments
 
 from . import compare, metrics
-from .pipeline import Analysis, CostLedger, EvalPipeline, JudgeVerdict, SkillEdit
+from .pipeline import Analysis, CostLedger, EvalPipeline, SkillEdit
 from .run import render_markdown
 
 SETTINGS = LLMSettings(base_url='http://fake/v1', api_key='', model='fake', timeout=10, source='settings')
@@ -31,9 +32,17 @@ class FakeStructured:
         return {'raw': message, 'parsed': self.fn(messages), 'parsing_error': None}
 
 
+def tool_call(name, **args):
+    return {'name': name, 'args': args, 'id': f"{name}-{len(args)}", 'type': 'tool_call'}
+
+
 class FakeLLM:
-    def __init__(self, responders):
+    """review_script：校对员每一步要发出的工具调用，用完后调用 Finish。"""
+
+    def __init__(self, responders, review_script=None):
         self.responders = responders
+        self.review_script = list(review_script or [])
+        self.review_prompts = []
 
     def with_structured_output(self, schema, method='function_calling', include_raw=False):
         return FakeStructured(self.responders[schema.__name__])
@@ -42,13 +51,15 @@ class FakeLLM:
         return self
 
     def invoke(self, messages):
-        return AIMessage(content='', tool_calls=[{'name': 'Finish', 'args': {'summary': 'ok'}, 'id': 'f', 'type': 'tool_call'}])
+        self.review_prompts.append(messages[1].content)
+        calls = self.review_script.pop(0) if self.review_script else [tool_call('Finish', summary='ok')]
+        return AIMessage(content='', tool_calls=calls)
 
 
-def perfect_agent(case):
-    """按金标准作答的假分角模型。"""
+def perfect_agent(case, wrong=None, review_script=None):
+    """按金标准作答的假分角模型；wrong={片段 id: (类别, 说话人)} 可故意标错。"""
     roster = [Character(name=c['name'], aliases=c.get('aliases', [])) for c in case['roster']]
-    segments = split_segments(case['text'])
+    segments = split_segments(case['text'], load_skill().params['speech_lead_verbs'])
     gold = metrics.match_gold(case, segments)['by_segment']
 
     def labels(messages):
@@ -56,7 +67,10 @@ def perfect_agent(case):
         out = []
         for item in payload['segments']:
             g = gold.get(item['id'])
-            if g is None:
+            if item['id'] in (wrong or {}):
+                category, speaker = wrong[item['id']]
+                out.append(SegmentLabel(id=item['id'], category=category, speaker=speaker, confidence=0.8))
+            elif g is None:
                 out.append(SegmentLabel(id=item['id'], category='旁白', speaker='旁白', confidence=1))
             else:
                 out.append(SegmentLabel(id=item['id'], category=g['category'][0],
@@ -69,13 +83,11 @@ def perfect_agent(case):
         'VoiceCasting': lambda m: VoiceCasting(mappings=[
             VoiceMapping(character=name, voice_config=voices[0]) for name, voices in case['casting'].items() if voices
         ]),
-    })
+    }, review_script)
 
 
-def fake_judge():
+def fake_analyst():
     return FakeLLM({
-        'JudgeVerdict': lambda m: JudgeVerdict(speaker_attribution=9, category=9, segmentation=8, roster=9,
-                                               casting=8, overall=9, errors=[], comment='ok'),
         'Analysis': lambda m: Analysis(verdict='ok', orchestration='ok', token_efficiency='ok', weaknesses=['x'],
                                        skill_edits=[SkillEdit(section='executor', change='c', reason='r')]),
     })
@@ -140,14 +152,76 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(len(result['unstable_segments']), 1)
 
 
+class SelfRepairTest(unittest.TestCase):
+    """确定性校验 + ReAct 校对员的自我修复闭环。"""
+
+    def run_agent(self, case, overrides=None, **kwargs):
+        voices = metrics.load_voices()
+        agent = RoleAgent(SETTINGS, llm=perfect_agent(case, **kwargs), skill=load_skill(overrides=overrides))
+        state = agent.run(case['text'], voices['voices'], voices['fallback'])
+        return agent, state
+
+    def test_cues_never_contradict_gold(self):
+        verbs = load_skill().params['speech_lead_verbs']
+        for case in metrics.load_cases():
+            roster = [{'name': c['name'], 'aliases': c.get('aliases', [])} for c in case['roster']]
+            segments = split_segments(case['text'], verbs)
+            gold = metrics.match_gold(case, segments)['by_segment']
+            for seg_id, (speaker, _) in checks.attribution_cues(segments, roster).items():
+                g = gold.get(seg_id)
+                if g and set(g['category']) & {'对话', '心理'}:
+                    self.assertIn(speaker, g['speaker'], (case['id'], seg_id))
+
+    def test_cue_mismatch_repaired_by_reviewer(self):
+        case = next(c for c in metrics.load_cases() if c['id'] == 'village')
+        segments = split_segments(case['text'], load_skill().params['speech_lead_verbs'])
+        target = next(s['id'] for s in segments if '招去干啥' in s['text'])
+        agent, state = self.run_agent(case, {'auto_apply_suggestions': False}, wrong={target: ('对话', '村民们')},
+                                      review_script=[[tool_call('ApplySuggestions', ids=[target])]])
+
+        issue = next(i for i in state['first_issues'] if i['id'] == target)
+        self.assertEqual((issue['kind'], issue['suggest']['speaker']), ('cue_mismatch', '王二婶'))
+        self.assertIn('建议=对话/王二婶', agent.llm.review_prompts[0])
+        self.assertEqual(state['labels'][target]['speaker'], '王二婶')
+        score = metrics.score_trial(case, {**state, 'usage': agent.usage})
+        self.assertEqual((score['review']['fixed'], score['review']['broken']), (1, 0))
+        self.assertEqual(score['validator']['by_kind']['cue_mismatch']['suggest_ok'], 1)
+        self.assertEqual(score['label_acc'], 1.0)
+
+    def test_suggestion_auto_applied_without_reviewer(self):
+        case = next(c for c in metrics.load_cases() if c['id'] == 'village')
+        segments = split_segments(case['text'], load_skill().params['speech_lead_verbs'])
+        target = next(s['id'] for s in segments if '招去干啥' in s['text'])
+        agent, state = self.run_agent(case, {'auto_apply_suggestions': True}, wrong={target: ('对话', '未识别角色')})
+
+        self.assertEqual(agent.llm.review_prompts, [])  # 没有剩余疑点，不调用校对员
+        self.assertEqual(state['labels'][target]['speaker'], '王二婶')
+        self.assertTrue(any('自动修复' in t['message'] for t in state['trace']))
+        score = metrics.score_trial(case, {**state, 'usage': agent.usage})
+        self.assertEqual((score['review']['fixed'], score['review']['broken'], score['label_acc']), (1, 0, 1.0))
+
+    def test_unused_characters_pruned(self):
+        case = next(c for c in metrics.load_cases() if c['id'] == 'grandpa')
+        _, state = self.run_agent(case)
+        names = {c['name'] for c in state['roster']}
+        self.assertNotIn('狐狸', names)  # 只在爷爷的故事里出现，没有自己的台词
+        self.assertTrue({'爷爷', '小胖', '妹妹', '我'} <= names)
+
+    def test_group_singular_flagged(self):
+        roster = [{'name': '众宾客', 'aliases': [], 'gender': '群体'}]
+        self.assertTrue(checks.is_group(roster[0]))
+        self.assertTrue(checks.singular_line('“也不是我，我今天一天都在图书馆。”'))
+        self.assertFalse(checks.singular_line('“我等即拜他为王！”'))
+
+
 class PipelineTest(unittest.TestCase):
     def run_pipeline(self, max_cost):
         cases = metrics.load_cases(only=['xiyou', 'teahouse'])
         voices = metrics.load_voices()
         ledger = CostLedger(max_cost)
         pipeline = EvalPipeline(
-            SETTINGS, load_skill(), voices, 'fake', 'fake-judge', 2, ledger, {}, {c['id']: 0.002 for c in cases},
-            log=lambda *_: None, agent_llm=None, judge_llm=fake_judge(),
+            SETTINGS, load_skill(), voices, 'fake', 'fake-analyst', 2, ledger, {}, {c['id']: 0.002 for c in cases},
+            log=lambda *_: None, agent_llm=None, analyst_llm=fake_analyst(),
         )
         # 每个用例用自己的“完美”假模型
         llms = {c['id']: perfect_agent(c) for c in cases}
@@ -168,14 +242,18 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(overall['all_agree_rate'], 1.0)
         self.assertEqual(result['summary']['cases']['teahouse']['chunks'], 2)
         self.assertGreater(ledger.spent['agent'], 0)
-        self.assertIn('judge', ledger.spent)
+        self.assertIn('analyst', ledger.spent)
+        self.assertNotIn('judge', ledger.spent)
         self.assertEqual(result['analysis']['verdict'], 'ok')
         config = {'started': '-', 'elapsed_s': 1, 'skill': load_skill().info(), 'overrides': {}, 'model': 'fake',
-                  'judge_model': 'fake', 'trials': 2}
-        self.assertIn('指标看板', render_markdown(config, result['summary'], result['analysis']))
+                  'analyst_model': 'fake', 'trials': 2}
+        markdown = render_markdown(config, result['summary'], result['analysis'])
+        self.assertIn('指标看板', markdown)
+        self.assertNotIn('裁判总分', markdown)
+        self.assertIn('ReAct 自我修复', markdown)
 
         # 报告落盘后可被 compare 重新汇总（JSON 往返后片段 id 变成字符串）
-        report = {'config': config, 'trials': result['trials'], 'judgments': result['judgments']}
+        report = {'config': config, 'trials': result['trials']}
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'report.json'
             path.write_text(json.dumps(report, ensure_ascii=False, default=str), encoding='utf-8')

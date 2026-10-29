@@ -1,0 +1,75 @@
+id: office
+title: 周一晨会 · 无提示语抢话与免提电话
+split: holdout
+difficulty: hard
+focus: [无提示语连续对白靠称呼与问答推断, 半角与全角引号混用, 英文对白, 免提电话另一端, 混合心声片段]
+text: |-
+  周一早上九点半，会议室的空调又坏了。
+  陈慧把笔记本往桌上一放："人齐了吧？那开始。"
+  "老王还没到。"小李举手。
+  "又迟到？"
+  "地铁故障，他刚在群里说了。"
+  门被推开，老王满头大汗地挤进来："对不住对不住，二号线停了二十分钟。"
+  陈慧没接他的话："上周的方案，客户那边有反馈了吗？"
+  "有。"我翻开记录，"张总说预算要砍掉三成，周三前给新报价。"
+  "三成？"老王一屁股坐下，"那还做什么，直接说不做得了。"
+  "老王。"
+  "我就是说说……"
+  陈慧敲了敲桌子："阿May，你把上周的数据调出来。"
+  "OK, give me one sec."阿May飞快地敲着键盘，她是上个月才来的实习生，"投放成本十二万四，转化率百分之三点一。"
+  老王把烟盒在手里转来转去："要我说，先砍投放。"
+  "砍投放，转化更难看。"
+  "那你说砍哪儿？砍你们实习生的补贴？"
+  "王哥，这跟我有什么关系……"
+  会议室安静了几秒。我在心里叹了口气：每次都是这样，吵到最后还得我来写方案。
+  这时陈慧的手机响了，她按了免提。
+  「小陈啊，」听筒里传来张总那慢悠悠的男中音，「新报价的事，周二能给我吗？」
+  "周二……"陈慧看了我一眼，"没问题，张总。"
+  「好，好。」电话挂了。
+  "周二？！"小李差点跳起来，椅子被他撞得哐当一响，"今天都周一了！"
+  "所以今晚加班。"陈慧合上笔记本，"散会。"
+roster:
+  - {name: 陈慧, aliases: [陈姐, 小陈, 组长, 慧姐]}
+  - {name: 小李, aliases: [李哥]}
+  - {name: 老王, aliases: [王哥, 王师傅]}
+  - {name: 阿May, aliases: [实习生阿May, 实习生, May]}
+  - {name: 我, aliases: [叙述者]}
+  - {name: 张总, aliases: [客户张总, 客户]}
+gold:
+  - {match: 人齐了吧, category: 对话, speaker: 陈慧}
+  - {match: 老王还没到, category: 对话, speaker: 小李}
+  - {match: 又迟到, category: 对话, speaker: 陈慧}
+  - {match: 地铁故障, category: 对话, speaker: 小李}
+  - {match: 对不住对不住, category: 对话, speaker: 老王}
+  - {match: 客户那边有反馈了吗, category: 对话, speaker: 陈慧}
+  - {match: '"有。"', category: 对话, speaker: 我}
+  - {match: 预算要砍掉三成, category: 对话, speaker: 我}
+  - {match: '"三成？"', category: 对话, speaker: 老王}
+  - {match: 直接说不做得了, category: 对话, speaker: 老王}
+  - {match: '"老王。"', category: 对话, speaker: 陈慧}
+  - {match: 我就是说说, category: 对话, speaker: 老王}
+  - {match: 把上周的数据调出来, category: 对话, speaker: 陈慧}
+  - {match: give me one sec, category: 对话, speaker: 阿May}
+  - {match: 投放成本十二万四, category: 对话, speaker: 阿May}
+  - {match: 要我说，先砍投放, category: 对话, speaker: 老王}
+  - {match: 转化更难看, category: 对话, speaker: 阿May}
+  - {match: 那你说砍哪儿, category: 对话, speaker: 老王}
+  - {match: 这跟我有什么关系, category: 对话, speaker: 阿May}
+  - {match: 吵到最后还得我来写方案, category: 心理, speaker: 我}
+  - {match: 「小陈啊，」, category: 对话, speaker: 张总}
+  - {match: 周二能给我吗, category: 对话, speaker: 张总}
+  - {match: '"周二……"', category: 对话, speaker: 陈慧}
+  - {match: 没问题，张总, category: 对话, speaker: 陈慧}
+  - {match: 「好，好。」, category: 对话, speaker: 张总}
+  - {match: 周二？！, category: 对话, speaker: 小李}
+  - {match: 今天都周一了, category: 对话, speaker: 小李}
+  - {match: 所以今晚加班, category: 对话, speaker: 陈慧}
+  - {match: '"散会。"', category: 对话, speaker: 陈慧}
+casting:
+  陈慧: [中年女声, 温柔女声]
+  小李: [青年男声]
+  老王: [中年男声]
+  阿May: [温柔女声]
+  # 原文没有交代叙述者性别
+  我: [青年男声, 温柔女声, ""]
+  张总: [中年男声, 老年男声]
